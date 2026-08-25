@@ -102,6 +102,17 @@ trading_bot/
   run_polymarket_backtest.py
 ```
 
+## polymm strategy simulation
+
+`polymm_sim/` is a separate, more targeted piece: a synthetic Monte Carlo
+simulation of [kachence/polymm](https://github.com/kachence/polymm)'s actual
+sports-arbitrage/market-making strategy (it reuses that repo's real de-vig
+code), built because a real backtest or paper trade against that repo isn't
+possible from this sandbox — same blocked-network story as above, confirmed
+again against `data-api.polymarket.com` and `the-odds-api.com` specifically.
+See `polymm_sim/README.md` for the full explanation, the model's
+assumptions, and how to run it.
+
 ## Known limitations / next steps
 
 - Polymarket API field names were written from documentation, not verified
