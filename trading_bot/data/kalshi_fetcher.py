@@ -9,13 +9,11 @@ Kalshi quotes prices in cents (1-99) for a $1-payout contract; this module
 converts everything to a 0-1 probability scale so the rest of the framework
 (shared with Polymarket, also 0-1) doesn't need to know the difference.
 
-NOTE: this environment can't reach api.elections.kalshi.com directly (see
-README), but the endpoint paths, param names, and response field names below
-ARE verified -- against Kalshi's own official `kalshi-python` OpenAPI-
-generated client (installed from PyPI, which IS reachable here), not just
-documentation. What's still unverified is runtime behavior this environment
-can't observe: actual response values/edge cases, rate limits, and whether
-the live API has moved on since that client was published.
+NOTE: verified against a LIVE call (not just docs or the kalshi-python
+client, which turned out to be stale on the candlestick shape -- period_interval
+is an integer minute count live, not the client's string code, and each
+candlestick nests 'price'/'yes_bid'/'yes_ask' objects with *_dollars string
+fields already on a 0-1 scale, not a flat cents 'close' field).
 """
 from __future__ import annotations
 
@@ -27,8 +25,14 @@ BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 MARKETS_URL = f"{BASE_URL}/markets"
 
 
-def fetch_resolved_markets(max_markets: int = 200, page_size: int = 100) -> Iterator[dict]:
-    """Yield settled binary markets with their final YES/NO result."""
+def fetch_resolved_markets(max_markets: int = 200, page_size: int = 100,
+                            series_ticker: str | None = None) -> Iterator[dict]:
+    """Yield settled binary markets with their final YES/NO result.
+
+    series_ticker: e.g. 'KXBTC15M' -- without it you'll also get multivariate
+    combo markets (event_ticker like 'KXMVECROSSCATEGORY-...') whose own
+    ticker isn't a valid /series/{..}/markets/{..}/candlesticks path.
+    """
     fetched = 0
     cursor = None
     while fetched < max_markets:
@@ -36,6 +40,8 @@ def fetch_resolved_markets(max_markets: int = 200, page_size: int = 100) -> Iter
             "status": "settled",
             "limit": min(page_size, max_markets - fetched),
         }
+        if series_ticker:
+            params["series_ticker"] = series_ticker
         if cursor:
             params["cursor"] = cursor
         resp = requests.get(MARKETS_URL, params=params, timeout=15)
@@ -66,26 +72,26 @@ def fetch_resolved_markets(max_markets: int = 200, page_size: int = 100) -> Iter
 
 
 def fetch_price_history(series_ticker: str, ticker: str, start_ts: int, end_ts: int,
-                         period_interval: str = "1h") -> list[dict]:
+                         period_interval_minutes: int = 1) -> list[dict]:
     """Return [{'t': unix_ts, 'p': yes_probability_0_to_1}, ...] for a market.
 
-    period_interval: one of the API's string codes, e.g. '1m', '5m', '1h', '1d'
-    (per kalshi_python.MarketsApi.get_market_candlesticks -- NOT a minute count).
+    period_interval_minutes: integer minutes per candle (verified live: 1 works;
+    the API rejects the kalshi-python client's string codes like '1m' with a 400).
     """
     url = f"{BASE_URL}/series/{series_ticker}/markets/{ticker}/candlesticks"
     params = {
         "start_ts": start_ts,
         "end_ts": end_ts,
-        "period_interval": period_interval,
+        "period_interval": period_interval_minutes,
     }
     resp = requests.get(url, params=params, timeout=15)
     resp.raise_for_status()
     candles = resp.json().get("candlesticks", [])
     history = []
     for candle in candles:
-        # kalshi_python.models.Candlestick: start_ts, end_ts, open, high, low, close, volume
-        close = candle.get("close")
-        if close is None:
+        # verified live shape: {'end_period_ts', 'price': {'close_dollars', ...}, 'yes_bid': {...}, 'yes_ask': {...}}
+        close_dollars = (candle.get("price") or {}).get("close_dollars")
+        if close_dollars is None:
             continue
-        history.append({"t": candle.get("end_ts"), "p": close / 100.0})
+        history.append({"t": candle.get("end_period_ts"), "p": float(close_dollars)})
     return history
