@@ -50,7 +50,8 @@ def size_contracts(stop_points: float, dollars_per_point: float, risk_per_trade_
 def simulate_evaluation(trades: list[dict], dollars_per_point: float,
                          profit_target: float = 1500.0, max_loss: float = 1000.0,
                          max_contracts: int = 20, risk_per_trade_dollars: float = 50.0,
-                         drawdown_mode: str = "trailing", round_trip_fee_per_contract: float = 0.0) -> dict:
+                         drawdown_mode: str = "trailing", round_trip_fee_per_contract: float = 0.0,
+                         fixed_contracts: int | None = None) -> dict:
     """Runs the real trade sequence through repeated evaluation attempts:
     starts a fresh attempt at equity 0, sizes and takes every signal in
     order, and ends that attempt the moment the account either hits
@@ -72,9 +73,16 @@ def simulate_evaluation(trades: list[dict], dollars_per_point: float,
         end_date = start_date
         while i < n:
             t = trades[i]
-            cushion = (max_loss - (peak - equity)) if drawdown_mode == "trailing" else (max_loss + equity)
-            contracts = size_contracts(t["stop_points"], dollars_per_point, risk_per_trade_dollars,
-                                        max_contracts, cushion)
+            if fixed_contracts is not None:
+                # a fixed size taken regardless of remaining drawdown cushion --
+                # deliberately NOT capped by cushion, to show the real risk of
+                # insisting on a flat size rather than sizing down as the
+                # account's room shrinks.
+                contracts = min(fixed_contracts, max_contracts)
+            else:
+                cushion = (max_loss - (peak - equity)) if drawdown_mode == "trailing" else (max_loss + equity)
+                contracts = size_contracts(t["stop_points"], dollars_per_point, risk_per_trade_dollars,
+                                            max_contracts, cushion)
             end_date = t["date"]
             i += 1
 
