@@ -60,8 +60,29 @@ def _in_window(hour: float, start: float, end: float) -> bool:
     return start <= hour < end
 
 
-def run_backtest(bars: list[dict], stop_points: float, breakeven_at_r: float | None = 1.0) -> dict:
-    """bars: [{'t': unix_ts, 'o','h','l','c'}, ...] ascending, one instrument."""
+def run_backtest(bars: list[dict], stop_points: float, breakeven_at_r: float | None = 1.0,
+                  confirmation: str = "fvg", sweep_hour_window: tuple[float, float] | None = None) -> dict:
+    """bars: [{'t': unix_ts, 'o','h','l','c'}, ...] ascending, one instrument.
+
+    confirmation: which LTF entry trigger to use after the sweep --
+      'fvg'     -- first reversal-direction FVG, enter at its close (validated
+                   against your real trade example).
+      'cisd'    -- 'change in state of delivery': wait for a close beyond the
+                   most recent 1-bar-fractal swing point (low for shorts, high
+                   for longs) formed after the sweep, enter at that close.
+                   1-bar fractal = a bar whose high/low is more extreme than
+                   both immediate neighbors, confirmed 1 bar later (no lookahead).
+      'bos_fvg' -- the cisd break-of-structure above, THEN the first FVG that
+                   forms after that break -- enter at its close (stacks both
+                   confirmations from the document's LTF-trigger list).
+    These are ONE reasonable, precisely-defined reading of genuinely ambiguous
+    terms (the source material lists 5 different 'LTF confirmation' options
+    and 7 different 'HTF PDA' options with no selection criteria) -- not the
+    only possible one.
+
+    sweep_hour_window: (start_hour, end_hour) in ET -- only sweeps whose bar
+    falls in this window can start a new pending setup. None = no restriction.
+    """
     et_bars = []
     for b in bars:
         dt = datetime.fromtimestamp(b["t"], tz=timezone.utc).astimezone(ET)
@@ -72,11 +93,20 @@ def run_backtest(bars: list[dict], stop_points: float, breakeven_at_r: float | N
     london_acc = {"h": None, "l": None}
     day_acc = {"h": None, "l": None, "date": None}
     in_asia_prev = in_london_prev = False
+    swing_lows: list[tuple[int, float]] = []
+    swing_highs: list[tuple[int, float]] = []
 
     pending = None   # dict: sweep setup in progress
     open_trade = None
     trades = []
     skipped_no_target = 0
+
+    def latest_swing(kind: str, after_idx: int):
+        pts = swing_lows if kind == "low" else swing_highs
+        for idx, price in reversed(pts):
+            if idx > after_idx:
+                return idx, price
+        return None, None
 
     def update_sessions(i: int):
         nonlocal in_asia_prev, in_london_prev
@@ -133,6 +163,13 @@ def run_backtest(bars: list[dict], stop_points: float, breakeven_at_r: float | N
         update_sessions(i)
         bar = et_bars[i]
 
+        if i >= 2:
+            prev, prev2 = et_bars[i - 1], et_bars[i - 2]
+            if prev["l"] < prev2["l"] and prev["l"] < bar["l"]:
+                swing_lows.append((i - 1, prev["l"]))
+            if prev["h"] > prev2["h"] and prev["h"] > bar["h"]:
+                swing_highs.append((i - 1, prev["h"]))
+
         if open_trade is not None:
             t = open_trade
             if t["direction"] == "short":
@@ -165,34 +202,69 @@ def run_backtest(bars: list[dict], stop_points: float, breakeven_at_r: float | N
             pending = None
 
         if pending is None:
-            for name in HIGH_LEVELS:
-                lvl = levels.values[name]
-                if lvl is not None and not levels.swept[name] and bar["h"] > lvl:
-                    levels.swept[name] = True
-                    pending = {"direction": "short", "sweep_idx": i, "level": name,
-                               "sweep_type": "wick" if bar["c"] <= lvl else "close_through"}
-                    break
-            if pending is None:
-                for name in LOW_LEVELS:
+            in_sweep_window = sweep_hour_window is None or _in_window(bar["hour"], *sweep_hour_window)
+            if in_sweep_window:
+                for name in HIGH_LEVELS:
                     lvl = levels.values[name]
-                    if lvl is not None and not levels.swept[name] and bar["l"] < lvl:
+                    if lvl is not None and not levels.swept[name] and bar["h"] > lvl:
                         levels.swept[name] = True
-                        pending = {"direction": "long", "sweep_idx": i, "level": name,
-                                   "sweep_type": "wick" if bar["c"] >= lvl else "close_through"}
+                        pending = {"direction": "short", "sweep_idx": i, "level": name,
+                                   "sweep_type": "wick" if bar["c"] <= lvl else "close_through",
+                                   "phase": "await_bos"}
                         break
+                if pending is None:
+                    for name in LOW_LEVELS:
+                        lvl = levels.values[name]
+                        if lvl is not None and not levels.swept[name] and bar["l"] < lvl:
+                            levels.swept[name] = True
+                            pending = {"direction": "long", "sweep_idx": i, "level": name,
+                                       "sweep_type": "wick" if bar["c"] >= lvl else "close_through",
+                                       "phase": "await_bos"}
+                            break
             continue
 
         if i < 2 or i <= pending["sweep_idx"]:
             continue
 
-        # first FVG in the reversal direction after the sweep -> enter at this candle's close
-        b0, b2 = et_bars[i - 2], bar
-        is_fvg = (pending["direction"] == "short" and b0["l"] > b2["h"]) or \
-                 (pending["direction"] == "long" and b0["h"] < b2["l"])
-        if not is_fvg:
+        entry_price = None
+
+        if confirmation == "fvg":
+            b0, b2 = et_bars[i - 2], bar
+            is_fvg = (pending["direction"] == "short" and b0["l"] > b2["h"]) or \
+                     (pending["direction"] == "long" and b0["h"] < b2["l"])
+            if is_fvg:
+                entry_price = bar["c"]
+
+        elif confirmation == "cisd":
+            kind = "low" if pending["direction"] == "short" else "high"
+            _, swing_price = latest_swing(kind, pending["sweep_idx"])
+            if swing_price is not None:
+                if pending["direction"] == "short" and bar["c"] < swing_price:
+                    entry_price = bar["c"]
+                elif pending["direction"] == "long" and bar["c"] > swing_price:
+                    entry_price = bar["c"]
+
+        elif confirmation == "bos_fvg":
+            if pending["phase"] == "await_bos":
+                kind = "low" if pending["direction"] == "short" else "high"
+                _, swing_price = latest_swing(kind, pending["sweep_idx"])
+                if swing_price is not None:
+                    broke = (pending["direction"] == "short" and bar["c"] < swing_price) or \
+                            (pending["direction"] == "long" and bar["c"] > swing_price)
+                    if broke:
+                        pending["phase"] = "await_fvg"
+                        pending["bos_idx"] = i
+            else:
+                if i > pending["bos_idx"]:
+                    b0, b2 = et_bars[i - 2], bar
+                    is_fvg = (pending["direction"] == "short" and b0["l"] > b2["h"]) or \
+                             (pending["direction"] == "long" and b0["h"] < b2["l"])
+                    if is_fvg:
+                        entry_price = bar["c"]
+
+        if entry_price is None:
             continue
 
-        entry_price = bar["c"]
         target = nearest_target(pending["direction"], entry_price)
         if target is None:
             skipped_no_target += 1

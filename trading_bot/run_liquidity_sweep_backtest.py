@@ -29,6 +29,10 @@ def main() -> None:
     parser.add_argument("--instrument", required=True, choices=list(INSTRUMENTS))
     parser.add_argument("--stop-points", type=float, required=True)
     parser.add_argument("--range", default="60d")
+    parser.add_argument("--confirmation", default="fvg", choices=["fvg", "cisd", "bos_fvg"])
+    parser.add_argument("--sweep-start-hour", type=float, default=None,
+                         help="ET hour, e.g. 10 for 10am -- only sweeps in [start,end) can trigger a setup")
+    parser.add_argument("--sweep-end-hour", type=float, default=None)
     args = parser.parse_args()
 
     spec = INSTRUMENTS[args.instrument]
@@ -36,7 +40,12 @@ def main() -> None:
     bars = fetch_intraday(spec["yahoo_symbol"], interval="5m", range_=args.range)
     print(f"Loaded {len(bars)} real 5-minute bars.")
 
-    report = run_backtest(bars, stop_points=args.stop_points)
+    sweep_window = None
+    if args.sweep_start_hour is not None and args.sweep_end_hour is not None:
+        sweep_window = (args.sweep_start_hour, args.sweep_end_hour)
+
+    report = run_backtest(bars, stop_points=args.stop_points, confirmation=args.confirmation,
+                           sweep_hour_window=sweep_window)
     trades = report.pop("trades")
 
     dpp = spec["dollars_per_point"]
