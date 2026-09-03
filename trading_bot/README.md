@@ -163,6 +163,50 @@ price yet, so a 0.90 threshold rarely triggers — that's a real property of
 this market (weather uncertainty resolves late), not a bug. Lower the
 threshold or the hours-before-close window to get more trades.
 
+### Tuning it: parameter sweep + out-of-sample validation
+
+The favorite-longshot result above is a losing strategy. Rather than declare
+Kalshi a dead end, a full sweep was run over ~54 parameter combinations
+(favorite-longshot thresholds 0.80–0.97 × entry timing 15min–12h before
+close; momentum lookback 2/3/5 × min-move 0.05–0.20 × entry timing) against
+299 real settled `KXHIGHNY` markets. Almost everything was flat-to-negative
+after fees — consistent with the earlier finding — **except one shape**:
+short-lookback momentum (buy YES after a fast recent uptick, not just a high
+absolute price) came out ahead across most of its neighboring parameter
+values, not just one lucky cell.
+
+Picking a single winner from a 54-way sweep and reporting it is exactly how
+you fool yourself with overfitting, so it was validated properly: the 299
+markets were split chronologically in half, the best config was selected
+using **only** the older half (train), then run **unchanged** on the newer
+half (test) it never influenced:
+
+| Split | Markets | Trades | Win rate | ROI | Max drawdown |
+|---|---|---|---|---|---|
+| Train (older half, selection) | 149 | 55 | 45.5% | **+3.40%** | -4.23% |
+| Test (newer half, never seen during selection) | 150 | 45 | 48.9% | **+4.45%** | -2.77% |
+
+Winning config: `momentum --lookback 2 --min-move 0.10 --hours-before-close 6`
+(buy YES if price has risen ≥10 points over the last 2 hourly candles, while
+between 0.15–0.85). It held up out-of-sample — the test-period ROI wasn't
+worse than train, which is the one result in this whole repo that survived
+an honest check. This is now the CLI's default strategy/config.
+
+**Real caveats, not hedging for its own sake:**
+- Both splits together are ~100 trades over roughly 7 weeks of one series
+  (NYC daily high temp). That's a thin sample — enough to say "worth
+  paper-trading," not enough to say "proven edge." A single unusual weather
+  week could be doing a lot of the work.
+- It's one series. It hasn't been checked against other Kalshi weather
+  series (Chicago, Miami, etc.) or non-weather series, which would be the
+  natural next robustness check — the same edge showing up independently in
+  a different city is much more convincing than one city alone.
+- The mechanism is plausible (a market catching up to fast-moving weather
+  information mid-life, before the crowd fully reprices), which is a better
+  starting point than a shape with no story behind it — but "plausible
+  mechanism + one out-of-sample pass" is still an early-stage finding, not a
+  result to size real money against.
+
 ## Prop-firm forex backtest
 
 Simulates a typical funded-account challenge (FTMO-style defaults: 5% max

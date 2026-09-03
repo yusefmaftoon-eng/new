@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Run a Kalshi backtest against real resolved-market history.
 
-Example:
+Example (validated out-of-sample, see README for train/test numbers):
     python -m trading_bot.run_kalshi_backtest \
-        --series KXHIGHNY --strategy favorite_longshot --entry-threshold 0.90 \
-        --max-markets 300 --hours-before-close 24
+        --series KXHIGHNY --strategy momentum --lookback 2 --min-move 0.10 \
+        --max-markets 300 --hours-before-close 6
 """
 from __future__ import annotations
 
@@ -26,12 +26,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--series", default="KXHIGHNY",
                          help="Kalshi series ticker, e.g. KXHIGHNY (NYC daily high temp)")
-    parser.add_argument("--strategy", default="favorite_longshot", choices=list(STRATEGIES))
+    parser.add_argument("--strategy", default="momentum", choices=list(STRATEGIES))
     parser.add_argument("--entry-threshold", type=float, default=0.90)
-    parser.add_argument("--lookback", type=int, default=3)
+    parser.add_argument("--lookback", type=int, default=2)
     parser.add_argument("--min-move", type=float, default=0.10)
     parser.add_argument("--max-markets", type=int, default=300)
-    parser.add_argument("--hours-before-close", type=float, default=24.0,
+    parser.add_argument("--hours-before-close", type=float, default=6.0,
                          help="cut off price history this many hours before market close, "
                               "so the entry can't leak the outcome")
     parser.add_argument("--candle-period-minutes", type=int, default=60, choices=[1, 60, 1440])
