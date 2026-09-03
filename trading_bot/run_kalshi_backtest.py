@@ -31,6 +31,8 @@ def main() -> None:
     parser.add_argument("--max-markets", type=int, default=200)
     parser.add_argument("--lookback-days", type=int, default=30,
                          help="how far before close to pull candlestick history")
+    parser.add_argument("--period-interval", default="1h", choices=["1m", "5m", "1h", "1d"],
+                         help="candlestick bucket size (Kalshi API string code, not minutes)")
     parser.add_argument("--stake", type=float, default=100.0)
     parser.add_argument("--fee-pct", type=float, default=0.01,
                          help="Kalshi's real fee schedule is per-contract and price-dependent; "
@@ -50,7 +52,8 @@ def main() -> None:
             return []
         start_ts = end_ts - args.lookback_days * SECONDS_PER_DAY
         try:
-            return fetch_price_history(market["series_ticker"], market["ticker"], start_ts, end_ts)
+            return fetch_price_history(market["series_ticker"], market["ticker"], start_ts, end_ts,
+                                        period_interval=args.period_interval)
         except Exception as exc:  # public API hiccup for one market shouldn't kill the run
             print(f"  warn: history fetch failed for {market['ticker']!r}: {exc}")
             return []

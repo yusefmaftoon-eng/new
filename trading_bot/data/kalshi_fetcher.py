@@ -9,11 +9,13 @@ Kalshi quotes prices in cents (1-99) for a $1-payout contract; this module
 converts everything to a 0-1 probability scale so the rest of the framework
 (shared with Polymarket, also 0-1) doesn't need to know the difference.
 
-NOTE: this was written from Kalshi's public API documentation without being
-able to hit the live endpoints from this environment (network egress to
-trading-api.kalshi.com / api.elections.kalshi.com is blocked by this
-session's org policy — see README). Double check endpoint paths and field
-names against a live call before trusting results, since this is unverified.
+NOTE: this environment can't reach api.elections.kalshi.com directly (see
+README), but the endpoint paths, param names, and response field names below
+ARE verified -- against Kalshi's own official `kalshi-python` OpenAPI-
+generated client (installed from PyPI, which IS reachable here), not just
+documentation. What's still unverified is runtime behavior this environment
+can't observe: actual response values/edge cases, rate limits, and whether
+the live API has moved on since that client was published.
 """
 from __future__ import annotations
 
@@ -64,21 +66,26 @@ def fetch_resolved_markets(max_markets: int = 200, page_size: int = 100) -> Iter
 
 
 def fetch_price_history(series_ticker: str, ticker: str, start_ts: int, end_ts: int,
-                         period_interval_minutes: int = 60) -> list[dict]:
-    """Return [{'t': unix_ts, 'p': yes_probability_0_to_1}, ...] for a market."""
+                         period_interval: str = "1h") -> list[dict]:
+    """Return [{'t': unix_ts, 'p': yes_probability_0_to_1}, ...] for a market.
+
+    period_interval: one of the API's string codes, e.g. '1m', '5m', '1h', '1d'
+    (per kalshi_python.MarketsApi.get_market_candlesticks -- NOT a minute count).
+    """
     url = f"{BASE_URL}/series/{series_ticker}/markets/{ticker}/candlesticks"
     params = {
         "start_ts": start_ts,
         "end_ts": end_ts,
-        "period_interval": period_interval_minutes,
+        "period_interval": period_interval,
     }
     resp = requests.get(url, params=params, timeout=15)
     resp.raise_for_status()
     candles = resp.json().get("candlesticks", [])
     history = []
     for candle in candles:
-        close = candle.get("yes_price_close") or candle.get("close")
+        # kalshi_python.models.Candlestick: start_ts, end_ts, open, high, low, close, volume
+        close = candle.get("close")
         if close is None:
             continue
-        history.append({"t": candle.get("end_period_ts") or candle.get("t"), "p": close / 100.0})
+        history.append({"t": candle.get("end_ts"), "p": close / 100.0})
     return history
