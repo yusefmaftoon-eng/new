@@ -152,7 +152,10 @@ def simulate_evaluation(trades: list[dict], dollars_per_point: float,
 def simulate_funded_account(trades: list[dict], dollars_per_point: float, max_loss: float = 1000.0,
                              max_contracts: int = 20, risk_per_trade_dollars: float = 50.0,
                              fixed_contracts: int | None = None, round_trip_fee_per_contract: float = 0.0,
-                             consistency_pct: float = 50.0) -> dict:
+                             consistency_pct: float = 50.0, model_payouts: bool = False,
+                             days_to_payout: int = 2, min_payout: float = 250.0,
+                             max_payout_request: float = 1000.0, profit_split: float = 0.80,
+                             buffer_requirement: float = 1100.0) -> dict:
     """Funded stage: no profit target to 'pass' -- the account just runs until
     it either breaches its EOD-trailing drawdown (funded account is over, you'd
     have to buy a new evaluation) or the data runs out. EOD trailing means the
@@ -164,10 +167,24 @@ def simulate_funded_account(trades: list[dict], dollars_per_point: float, max_lo
     before -- it's only the RATCHETING UP of the floor that waits for day-close.
 
     consistency_pct: MyFundedFutures' rule that no single day may account for
-    more than this % of total profit. Reported here (which days would have
-    been 'inconsistent' and how much profit that puts at risk for payouts) --
-    NOT enforced as an account breach, since it's a payout-eligibility rule,
-    not a drawdown rule.
+    more than this % of total profit. When model_payouts is off, this is only
+    reported (which days would have been 'inconsistent'). When model_payouts
+    is on, a payout is WITHHELD entirely on any check where the best single
+    day so far exceeds this % of cumulative profit -- a simplification (the
+    real rule may reduce rather than fully withhold), but a defensible and
+    clearly-stated one absent the exact mechanic.
+
+    model_payouts: every `days_to_payout` trading days, checks eligibility
+    (equity >= buffer_requirement, profit since last payout >= min_payout,
+    consistency check passes) and if so withdraws
+    min(profit_since_last_payout * profit_split, max_payout_request) as CASH
+    -- removed from `equity` but NOT from `peak` (the standard, conservative
+    trailing-drawdown convention: your historical high-water mark isn't
+    erased by withdrawing from it, so taking a payout does NOT lower the
+    floor -- it only lowers your cushion above it, which can make a
+    subsequent breach MORE likely, not less. This is the single most
+    important, non-obvious dynamic a real trader needs to understand before
+    assuming payouts are 'free money' that resets risk).
     """
     equity = 0.0
     peak = 0.0                 # ratchets only at day-close
@@ -177,6 +194,10 @@ def simulate_funded_account(trades: list[dict], dollars_per_point: float, max_lo
     n_trades_taken = n_signals_skipped = 0
     outcome = "still_running"
     breach_date = None
+    total_payouts = 0.0
+    equity_at_last_payout = 0.0
+    days_since_last_payout = 0
+    payout_log = []
 
     def floor_for(pk: float) -> float:
         return pk - max_loss
@@ -186,6 +207,20 @@ def simulate_funded_account(trades: list[dict], dollars_per_point: float, max_lo
             if current_date is not None:
                 daily_pnl[current_date] = equity - day_start_equity
                 peak = max(peak, equity)   # ratchet only now, at the day boundary
+                days_since_last_payout += 1
+
+                if model_payouts and days_since_last_payout >= days_to_payout:
+                    profit_since_payout = equity - equity_at_last_payout
+                    cumulative_profit = equity + total_payouts
+                    best_day_so_far = max(daily_pnl.values()) if daily_pnl else 0.0
+                    consistent = cumulative_profit <= 0 or best_day_so_far <= consistency_pct / 100 * cumulative_profit
+                    if equity >= buffer_requirement and profit_since_payout >= min_payout and consistent:
+                        payout = min(profit_since_payout * profit_split, max_payout_request)
+                        equity -= payout
+                        total_payouts += payout
+                        equity_at_last_payout = equity
+                        payout_log.append({"date": str(current_date), "amount": round(payout, 2)})
+                    days_since_last_payout = 0
             current_date = t["date"]
             day_start_equity = equity
 
@@ -217,7 +252,7 @@ def simulate_funded_account(trades: list[dict], dollars_per_point: float, max_lo
     if current_date is not None and outcome != "breached":
         daily_pnl[current_date] = equity - day_start_equity
 
-    total_profit = equity
+    total_profit = equity + total_payouts
     best_day = max(daily_pnl.values()) if daily_pnl else 0.0
     inconsistent_days = [(str(d), round(p, 2)) for d, p in daily_pnl.items()
                           if total_profit > 0 and p > consistency_pct / 100 * total_profit]
@@ -226,6 +261,9 @@ def simulate_funded_account(trades: list[dict], dollars_per_point: float, max_lo
         "outcome": outcome, "breach_date": str(breach_date) if breach_date else None,
         "final_equity": round(equity, 2), "n_trading_days": len(daily_pnl),
         "n_trades_taken": n_trades_taken, "n_signals_skipped": n_signals_skipped,
+        "total_payouts_received": round(total_payouts, 2), "n_payouts": len(payout_log),
+        "payout_log": payout_log,
+        "cash_in_pocket_plus_remaining_equity": round(total_payouts + max(equity, 0.0), 2),
         "best_single_day_pnl": round(best_day, 2),
         "best_day_pct_of_total": round(100 * best_day / total_profit, 1) if total_profit > 0 else None,
         "n_days_violating_consistency_rule": len(inconsistent_days),
