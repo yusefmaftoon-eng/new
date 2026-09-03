@@ -86,6 +86,36 @@ Both are long-only/flat (no shorting). Supported `--symbol` values map to
 Coinbase products (BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT, DOGEUSDT, ADAUSDT,
 LTCUSDT, LINKUSDT, or any `XXXUSDT`/native Coinbase `XXX-USD` ticker).
 
+## Memecoin backtest (DOGE-USD, Coinbase, 2021-01-01 .. 2026-08-01, daily)
+
+Same crypto engine and strategies, pointed at DOGE — the only memecoin with
+clean, exchange-verified historical OHLCV via a public API with no key; most
+newer memecoins only trade on DEXs (Solana/Base/etc.) where honest historical
+data requires a paid API (Birdeye, DexScreener Pro) and liquidity is thin
+enough that backtests are unreliable anyway. Consider this a proxy for "meme
+volatility," not a claim it generalizes to any specific token.
+
+| Strategy | Total return | Max drawdown | Trades | Win rate | Buy & hold |
+|---|---|---|---|---|---|
+| `sma_crossover` (20/50) | **+15.5%** | -63.5% | 19 | 21.1% | **-82.8%** |
+| `rsi_mean_reversion` | **-66.1%** | -69.0% | 40 | 50.0% | -82.8% |
+
+```bash
+python -m trading_bot.run_crypto_backtest --symbol DOGEUSDT --interval 1d \
+    --start 2021-01-01 --end 2026-08-01 --strategy sma_crossover --fast 20 --slow 50
+```
+
+**The honest takeaway**: buy-and-hold DOGE over this window lost **83%** of
+its value (it pumped hard in the 2021 mania and never recovered). Trend
+following (SMA crossover) turned that into a modest +15.5% gain purely by
+being in cash for most of the collapse — a real, useful result. Mean
+reversion (buying dips) lost 66% doing the opposite: every "buy the dip" was
+followed by a deeper dip. **This is the actual shape of memecoin risk**: the
+strategy that wins is the one willing to sit out, not the one trying to catch
+the bounce, and even the winning strategy here only avoided a loss — it
+didn't produce a strategy you'd want to bet real size on (21% win rate, -63%
+drawdown along the way).
+
 ## Kalshi backtest
 
 Uses NYC daily-high-temperature markets (`KXHIGHNY`) by default — a series
