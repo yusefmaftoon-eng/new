@@ -1,7 +1,10 @@
 """Backtest for: liquidity sweep of a session/prior-day high or low (wick OR
-close through) -> inverse fair value gap (iFVG) forms in the reversal
-direction -> entry on retrace into that inverted zone -> fixed-point stop,
-target = nearest unswept opposing session/prior-day level.
+close through) -> the FIRST fair value gap that forms in the reversal
+direction after the sweep -> enter at that candle's close (no retrace/
+inversion wait -- confirmed against a real trade example: sweep London
+High/Asian High, bearish FVG prints, short entered right on that candle's
+close) -> fixed-point stop, target = nearest unswept opposing session/
+prior-day level, stop moved to breakeven once price reaches 1R in favor.
 
 Definitions used here (state them explicitly since this exact playbook has no
 single universal definition -- adjust the constants below to match yours):
@@ -20,16 +23,15 @@ single universal definition -- adjust the constants below to match yours):
   a sweep, per your rules.
 
   FVG (3-candle imbalance): bullish when bars[i-2].high < bars[i].low
-  (gap = that range); bearish when bars[i-2].low > bars[i].high.
+  (gap = that range); bearish when bars[i-2].low > bars[i].high. After a HIGH
+  sweep (short bias), the first BEARISH FVG to form -> enter short at that
+  candle's close. Mirror image after a LOW sweep (long bias, first BULLISH
+  FVG -> enter long at its close).
 
-  Inverse FVG: after a HIGH sweep (short bias), look for a BULLISH FVG
-  forming in the bars right after the sweep, then wait for a later close
-  back below its lower edge (inverting it from support to resistance).
-  Entry: price retraces back up and touches the zone's lower edge -> short.
-  Mirror image after a LOW sweep (long bias, bearish FVG inverting to
-  support, entry on retrace down to the zone's upper edge -> long).
-
-  Stop: fixed points from entry (your number, per instrument).
+  Stop: fixed points from entry (your number, per instrument). Moved to
+  breakeven (= entry price) the first bar AFTER price reaches 1R in favor
+  (the bar that reaches 1R is still evaluated against the original stop --
+  the move only protects bars after that, no lookahead).
   Target: nearest currently-live opposing-side level ahead of entry price.
   No target available -> trade is skipped (not given a fabricated target).
   Both stop and target touched within the same bar -> stop assumed first
@@ -58,7 +60,7 @@ def _in_window(hour: float, start: float, end: float) -> bool:
     return start <= hour < end
 
 
-def run_backtest(bars: list[dict], stop_points: float) -> dict:
+def run_backtest(bars: list[dict], stop_points: float, breakeven_at_r: float | None = 1.0) -> dict:
     """bars: [{'t': unix_ts, 'o','h','l','c'}, ...] ascending, one instrument."""
     et_bars = []
     for b in bars:
@@ -135,18 +137,28 @@ def run_backtest(bars: list[dict], stop_points: float) -> dict:
             t = open_trade
             if t["direction"] == "short":
                 if bar["h"] >= t["stop_price"]:
-                    t.update(exit_idx=i, exit_price=t["stop_price"], result="loss")
+                    result = "breakeven" if t["moved_to_be"] else "loss"
+                    t.update(exit_idx=i, exit_price=t["stop_price"], result=result)
                     trades.append(t); open_trade = None
                 elif bar["l"] <= t["target_price"]:
                     t.update(exit_idx=i, exit_price=t["target_price"], result="win")
                     trades.append(t); open_trade = None
+                elif not t["moved_to_be"] and breakeven_at_r is not None \
+                        and bar["l"] <= t["entry_price"] - breakeven_at_r * stop_points:
+                    t["moved_to_be"] = True
+                    t["stop_price"] = t["entry_price"]
             else:
                 if bar["l"] <= t["stop_price"]:
-                    t.update(exit_idx=i, exit_price=t["stop_price"], result="loss")
+                    result = "breakeven" if t["moved_to_be"] else "loss"
+                    t.update(exit_idx=i, exit_price=t["stop_price"], result=result)
                     trades.append(t); open_trade = None
                 elif bar["h"] >= t["target_price"]:
                     t.update(exit_idx=i, exit_price=t["target_price"], result="win")
                     trades.append(t); open_trade = None
+                elif not t["moved_to_be"] and breakeven_at_r is not None \
+                        and bar["h"] >= t["entry_price"] + breakeven_at_r * stop_points:
+                    t["moved_to_be"] = True
+                    t["stop_price"] = t["entry_price"]
             continue  # one position at a time; don't also process new setups this bar
 
         if pending is not None and i - pending["sweep_idx"] > MAX_SETUP_BARS:
@@ -158,8 +170,7 @@ def run_backtest(bars: list[dict], stop_points: float) -> dict:
                 if lvl is not None and not levels.swept[name] and bar["h"] > lvl:
                     levels.swept[name] = True
                     pending = {"direction": "short", "sweep_idx": i, "level": name,
-                               "sweep_type": "wick" if bar["c"] <= lvl else "close_through",
-                               "fvg": None, "inverted": False}
+                               "sweep_type": "wick" if bar["c"] <= lvl else "close_through"}
                     break
             if pending is None:
                 for name in LOW_LEVELS:
@@ -167,50 +178,31 @@ def run_backtest(bars: list[dict], stop_points: float) -> dict:
                     if lvl is not None and not levels.swept[name] and bar["l"] < lvl:
                         levels.swept[name] = True
                         pending = {"direction": "long", "sweep_idx": i, "level": name,
-                                   "sweep_type": "wick" if bar["c"] >= lvl else "close_through",
-                                   "fvg": None, "inverted": False}
+                                   "sweep_type": "wick" if bar["c"] >= lvl else "close_through"}
                         break
             continue
 
-        if i < 2:
+        if i < 2 or i <= pending["sweep_idx"]:
             continue
 
-        if pending["fvg"] is None:
-            b0, b2 = et_bars[i - 2], bar
-            if pending["direction"] == "short" and b0["h"] < b2["l"]:
-                pending["fvg"] = (b0["h"], b2["l"])  # (lower, upper)
-            elif pending["direction"] == "long" and b0["l"] > b2["h"]:
-                pending["fvg"] = (b2["h"], b0["l"])
+        # first FVG in the reversal direction after the sweep -> enter at this candle's close
+        b0, b2 = et_bars[i - 2], bar
+        is_fvg = (pending["direction"] == "short" and b0["l"] > b2["h"]) or \
+                 (pending["direction"] == "long" and b0["h"] < b2["l"])
+        if not is_fvg:
             continue
 
-        lower, upper = pending["fvg"]
-        if not pending["inverted"]:
-            if pending["direction"] == "short" and bar["c"] < lower:
-                pending["inverted"] = True
-            elif pending["direction"] == "long" and bar["c"] > upper:
-                pending["inverted"] = True
-            continue
-
-        if pending["direction"] == "short" and bar["h"] >= lower:
-            entry_price = lower
-            target = nearest_target("short", entry_price)
-            if target is None:
-                skipped_no_target += 1
-            else:
-                open_trade = {"direction": "short", "entry_idx": i, "entry_price": entry_price,
-                               "stop_price": entry_price + stop_points, "target_price": target,
-                               "level": pending["level"], "sweep_type": pending["sweep_type"]}
-            pending = None
-        elif pending["direction"] == "long" and bar["l"] <= upper:
-            entry_price = upper
-            target = nearest_target("long", entry_price)
-            if target is None:
-                skipped_no_target += 1
-            else:
-                open_trade = {"direction": "long", "entry_idx": i, "entry_price": entry_price,
-                               "stop_price": entry_price - stop_points, "target_price": target,
-                               "level": pending["level"], "sweep_type": pending["sweep_type"]}
-            pending = None
+        entry_price = bar["c"]
+        target = nearest_target(pending["direction"], entry_price)
+        if target is None:
+            skipped_no_target += 1
+        else:
+            stop_price = entry_price + stop_points if pending["direction"] == "short" \
+                else entry_price - stop_points
+            open_trade = {"direction": pending["direction"], "entry_idx": i, "entry_price": entry_price,
+                           "stop_price": stop_price, "target_price": target, "moved_to_be": False,
+                           "level": pending["level"], "sweep_type": pending["sweep_type"]}
+        pending = None
 
     open_at_end = 1 if open_trade is not None else 0
     for t in trades:
