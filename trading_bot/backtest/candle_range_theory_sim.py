@@ -104,7 +104,7 @@ def run_backtest(bars_5m: list[dict], range_minutes: int = 60,
                 else:
                     pending["extreme"] = min(pending["extreme"], bar["l"])
 
-            if entry_style == "ltf_confirm" and j >= c2_idxs[0] + 2:
+            if entry_style in ("ltf_confirm", "either") and j >= c2_idxs[0] + 2:
                 b0, b2 = et_5m[j - 2], bar
                 is_fvg = (pending["direction"] == "short" and b0["l"] > b2["h"]) or \
                          (pending["direction"] == "long" and b0["h"] < b2["l"])
@@ -113,7 +113,11 @@ def run_backtest(bars_5m: list[dict], range_minutes: int = 60,
                     entry_global_idx = j
                     break
 
-        if entry_style == "candle3_open" and pending is not None:
+        # 'either': ltf_confirm always resolves (or doesn't) before candle 3 even
+        # opens, since it's checked bar-by-bar during candle 2 -- so falling back
+        # to candle3_open here only fires on setups ltf_confirm missed (no FVG
+        # ever formed), not a duplicate of the same setup.
+        if entry_style in ("candle3_open", "either") and entry_price is None and pending is not None:
             c2_close = et_5m[c2_idxs[-1]]["c"]
             closed_inside = range_low <= c2_close <= range_high
             c3_idxs = idx_by_period_start.get(c2_start + span)
