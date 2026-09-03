@@ -101,6 +101,22 @@ python -m trading_bot.run_kalshi_backtest \
     --entry-threshold 0.85 --max-markets 250 --hours-before-close 6
 ```
 
+**Real result** (250 settled `KXHIGHNY` markets, entry threshold 0.85, entries
+cut off 6h before close):
+
+| Trades | Win rate | Total P&L | ROI | Max drawdown | Avg P&L/trade |
+|---|---|---|---|---|---|
+| 47 | **87.2%** | **-$296.56** | -2.97% | -3.4% | -$6.31 |
+
+**The honest takeaway, and the single most important lesson in this whole
+repo: an 87% win rate still lost money.** Buying heavy favorites wins often,
+but by small amounts (paying $0.85+ for a contract that pays out $1 caps the
+per-win upside at ~$0.15), while the rare 13% of losses wipe out most of a
+stake in one shot — and Kalshi's real taker fee, which is largest exactly at
+these near-certain price levels, tips the already-thin edge negative. This is
+the correct, expected behavior of a naive favorite-longshot strategy after
+real fees — not a bug in the backtest.
+
 Strategies (`strategies/kalshi_strategy.py`):
 - `favorite_longshot` — buys YES the first time price crosses `--entry-threshold`
   in the (pre-cutoff) history, betting on the documented favorite-longshot bias.
