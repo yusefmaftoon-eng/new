@@ -188,24 +188,71 @@ half (test) it never influenced:
 
 Winning config: `momentum --lookback 2 --min-move 0.10 --hours-before-close 6`
 (buy YES if price has risen ≥10 points over the last 2 hourly candles, while
-between 0.15–0.85). It held up out-of-sample — the test-period ROI wasn't
-worse than train, which is the one result in this whole repo that survived
-an honest check. This is now the CLI's default strategy/config.
+between 0.15–0.85). At the time, it looked like it had held up out-of-sample.
+It hadn't, fully — see the correction directly below, from actually trying to
+push the ROI higher. This is still the CLI's default (it's the least-bad,
+most-tested option found so far), but read the corrected numbers before
+trusting it with anything.
+
+### Trying to push ROI higher: it overfit, and that's the real finding
+
+Asked to improve on the ~4% ROI above, the obvious next move is to search
+harder — finer parameter grid, more strategy shapes (different price bands,
+finer lookback/min-move steps), same data. That is also the textbook way to
+fool yourself, so this was checked properly. Kalshi's `KXHIGHNY` series only
+has 408 settled markets total in its history (it started in late June) — the
+first 299 were already spent on the train/test split above, leaving exactly
+109 markets that had never been touched by any tuning decision. A ~600-config
+sweep was run on the same 299 "seen" markets, and the top result looked
+outstanding:
+
+| | Markets | Trades | Win rate | ROI |
+|---|---|---|---|---|
+| Best config found on "seen" data (`lookback=4, min_move=0.15, band=0.20-0.80`) | 299 (already used) | 76 | 57.9% | **+12.5%** |
+| Same exact config, run once on the 109 fresh markets | 109 (never touched before) | 38 | 36.8% | **-8.6%** |
+
+That's a dead edge dressed up as a great one — an artifact of searching ~600
+combinations against a small, static dataset until one of them fit the noise.
+**This is the actual answer to "can we get the ROI% higher": pushing the
+search further didn't find a better strategy, it found overfitting.**
+
+Re-checking the earlier "validated" config on this same fresh 109-market
+batch was the more important test, and it also came back negative:
+
+| Slice | Markets | Trades | Win rate | ROI |
+|---|---|---|---|---|
+| Train (original, older half) | 149 | 55 | 45.5% | +3.40% |
+| Test (original, newer half) | 150 | 45 | 48.9% | +4.45% |
+| **Fresh holdout (never touched until this check)** | 109 | 45 | 37.8% | **-3.85%** |
+| **All 408 markets combined, one run, no splitting** | 408 | 145 | 44.1% | **+4.01%** |
+
+**The honest, corrected conclusion**: the earlier "it held up out-of-sample"
+claim was weaker than it sounded — one successful train/test split on a small
+dataset is not strong evidence, and this third slice came back negative. The
+strategy is still marginally ahead of favorite-longshot over the complete
+408-market history to date (+4.0% vs. -2.7%), so there's no better-supported
+alternative to switch to, but that combined number is being pulled up by
+older data and pulled down by the most recent slice — this is closer to "not
+distinguishable from zero edge yet" than "proven," and no amount of further
+parameter search on this same ~400-market, one-series, 10-week dataset is
+going to fix that. The only way to actually raise confidence (not just the
+reported number) is more independent data: checking whether a similar
+short-lookback-momentum shape shows up on a different Kalshi series, or
+simply letting `KXHIGHNY` accumulate more settled markets over time.
 
 **Real caveats, not hedging for its own sake:**
-- Both splits together are ~100 trades over roughly 7 weeks of one series
-  (NYC daily high temp). That's a thin sample — enough to say "worth
-  paper-trading," not enough to say "proven edge." A single unusual weather
-  week could be doing a lot of the work.
+- The whole usable history for this series is ~400 markets over ~10 weeks.
+  That's a thin sample — small enough that "which half you happen to test on"
+  visibly changes the sign of the result, as shown above.
 - It's one series. It hasn't been checked against other Kalshi weather
   series (Chicago, Miami, etc.) or non-weather series, which would be the
   natural next robustness check — the same edge showing up independently in
   a different city is much more convincing than one city alone.
 - The mechanism is plausible (a market catching up to fast-moving weather
   information mid-life, before the crowd fully reprices), which is a better
-  starting point than a shape with no story behind it — but "plausible
-  mechanism + one out-of-sample pass" is still an early-stage finding, not a
-  result to size real money against.
+  starting point than a shape with no story behind it — but a plausible
+  mechanism plus an inconsistent backtest record is still not something to
+  size real money against.
 
 ## Prop-firm forex backtest
 
