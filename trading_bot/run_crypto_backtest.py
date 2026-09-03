@@ -12,7 +12,7 @@ import argparse
 import json
 
 from trading_bot.backtest.engine import backtest_report
-from trading_bot.data.crypto_fetcher import fetch_binance_klines, periods_per_year
+from trading_bot.data.crypto_fetcher import fetch_crypto_ohlc, periods_per_year
 from trading_bot.strategies.crypto_strategy import STRATEGIES
 
 
@@ -34,9 +34,9 @@ def main() -> None:
     parser.add_argument("--out-csv", default=None, help="optional path to dump the equity curve")
     args = parser.parse_args()
 
-    print(f"Fetching {args.symbol} {args.interval} candles from Binance "
+    print(f"Fetching {args.symbol} {args.interval} candles from Coinbase Exchange "
           f"({args.start} .. {args.end})...")
-    df = fetch_binance_klines(args.symbol, args.interval, args.start, args.end)
+    df = fetch_crypto_ohlc(args.symbol, args.interval, args.start, args.end)
     print(f"Loaded {len(df)} candles.")
 
     strategy_fn = STRATEGIES[args.strategy]
