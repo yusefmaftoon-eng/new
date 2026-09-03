@@ -6,7 +6,7 @@
   Candle 3 (target):  price delivers toward the opposite extreme of Candle 1's
                       range.
 
-  Two entry styles (the source material offers both):
+  Entry styles:
     'candle3_open' -- the basic version. Requires Candle 2 to have wicked
       beyond the range AND its own final close to land back INSIDE the range
       (this is checked without lookahead: candle 2 has already closed by the
@@ -20,6 +20,21 @@
       'must close back inside' rule does NOT apply here -- it's a real-time
       confirmation trigger, not something you'd retroactively cancel a live
       trade over once Candle 2 finishes forming.
+    'mss_fvg' -- the 'A+' LTF-confluence version: after the sweep, require a
+      Market Structure Shift (a close beyond the most recent post-sweep
+      1-bar-fractal swing point in the reversal direction -- same definition
+      used as 'cisd' in liquidity_sweep_ifvg_sim.py) BEFORE looking for the
+      FVG; only the first FVG forming AFTER that structure break counts.
+      Strictly more selective than 'ltf_confirm' (every mss_fvg trade is also
+      an ltf_confirm-eligible sweep, but not the reverse).
+
+  sweep_hour_window: (start_hour, end_hour) in ET -- restricts which sweeps
+  (Candle 2's wick beyond the range) can start a new pending setup, e.g. to
+  London Open or an NY 'kill zone'. None = no restriction. This models the
+  'A+ setup' timing requirement -- NOT implemented: the 'A+' requirement that
+  Candle 1 sit inside a higher-timeframe Point of Interest (a Daily Order
+  Block, weekly liquidity pool, etc.) -- order-block detection is separate,
+  more subjective logic this module doesn't have.
 
   Stop: the actual extreme wick reached during the sweep.
   Target: 'opposite' -- the far boundary of Candle 1's range (CRL for a
@@ -58,9 +73,14 @@ def _aggregate(bars: list[dict], minutes: int) -> list[dict]:
     return out
 
 
+def _in_window(hour: float, start: float, end: float) -> bool:
+    return start <= hour < end
+
+
 def run_backtest(bars_5m: list[dict], range_minutes: int = 60,
                   entry_style: str = "ltf_confirm", target_mode: str = "opposite",
-                  session_end_hour: float = 16.0) -> dict:
+                  session_end_hour: float = 16.0,
+                  sweep_hour_window: tuple[float, float] | list[tuple[float, float]] | None = None) -> dict:
     span = range_minutes * 60
     htf = {h["t"]: h for h in _aggregate(bars_5m, span // 60)}
 
@@ -72,6 +92,24 @@ def run_backtest(bars_5m: list[dict], range_minutes: int = 60,
     idx_by_period_start: dict = {}
     for i, b in enumerate(et_5m):
         idx_by_period_start.setdefault((b["t"] // span) * span, []).append(i)
+
+    # global, causal 1-bar-fractal swing points (confirmed 1 bar later, no
+    # lookahead) -- used by 'mss_fvg' to detect a market structure shift.
+    swing_lows: list[tuple[int, float]] = []
+    swing_highs: list[tuple[int, float]] = []
+    for i in range(1, n_total - 1):
+        prev, cur, nxt = et_5m[i - 1], et_5m[i], et_5m[i + 1]
+        if cur["l"] < prev["l"] and cur["l"] < nxt["l"]:
+            swing_lows.append((i, cur["l"]))
+        if cur["h"] > prev["h"] and cur["h"] > nxt["h"]:
+            swing_highs.append((i, cur["h"]))
+
+    def latest_swing(kind: str, after_idx: int):
+        pts = swing_lows if kind == "low" else swing_highs
+        for idx, price in reversed(pts):
+            if idx > after_idx:
+                return price
+        return None
 
     sorted_c1_starts = sorted(htf)
     trades = []
@@ -92,10 +130,18 @@ def run_backtest(bars_5m: list[dict], range_minutes: int = 60,
         for j in c2_idxs:
             bar = et_5m[j]
             if pending is None:
+                if sweep_hour_window is None:
+                    in_window = True
+                else:
+                    windows = sweep_hour_window if isinstance(sweep_hour_window[0], (tuple, list)) \
+                        else [sweep_hour_window]
+                    in_window = any(_in_window(bar["hour"], *w) for w in windows)
+                if not in_window:
+                    continue
                 if bar["h"] > range_high:
-                    pending = {"direction": "short", "extreme": bar["h"]}
+                    pending = {"direction": "short", "extreme": bar["h"], "sweep_idx": j, "mss_broken": False}
                 elif bar["l"] < range_low:
-                    pending = {"direction": "long", "extreme": bar["l"]}
+                    pending = {"direction": "long", "extreme": bar["l"], "sweep_idx": j, "mss_broken": False}
                 else:
                     continue
             else:
@@ -112,6 +158,25 @@ def run_backtest(bars_5m: list[dict], range_minutes: int = 60,
                     entry_price, entry_stop, entry_direction = bar["c"], pending["extreme"], pending["direction"]
                     entry_global_idx = j
                     break
+
+            if entry_style == "mss_fvg":
+                if not pending["mss_broken"]:
+                    kind = "low" if pending["direction"] == "short" else "high"
+                    swing_price = latest_swing(kind, pending["sweep_idx"])
+                    if swing_price is not None:
+                        broke = (pending["direction"] == "short" and bar["c"] < swing_price) or \
+                                (pending["direction"] == "long" and bar["c"] > swing_price)
+                        if broke:
+                            pending["mss_broken"] = True
+                            pending["mss_idx"] = j
+                elif j >= pending["mss_idx"] + 2:
+                    b0, b2 = et_5m[j - 2], bar
+                    is_fvg = (pending["direction"] == "short" and b0["l"] > b2["h"]) or \
+                             (pending["direction"] == "long" and b0["h"] < b2["l"])
+                    if is_fvg:
+                        entry_price, entry_stop, entry_direction = bar["c"], pending["extreme"], pending["direction"]
+                        entry_global_idx = j
+                        break
 
         # 'either': ltf_confirm always resolves (or doesn't) before candle 3 even
         # opens, since it's checked bar-by-bar during candle 2 -- so falling back
