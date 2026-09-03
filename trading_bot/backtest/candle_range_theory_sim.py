@@ -1,23 +1,32 @@
-"""Candle Range Theory (CRT): a higher-timeframe (HTF) candle's high/low
-defines a range; price in the NEXT HTF candle sweeps one side of that range
-(wick beyond it) and closes back inside (rejection) -> enter toward the
-opposite side of the range.
+"""Candle Range Theory (CRT), per the 3-candle model:
 
-Definitions:
-  Range: the high/low of the immediately preceding COMPLETED HTF candle
-  (e.g. the last fully-closed 1H or 4H bar) -- only usable once that candle
-  has actually closed, no lookahead.
-  Sweep+reject: within the current (forming) HTF period, the first 5-min bar
-  whose high exceeds the range high (or low undercuts the range low) starts
-  a pending setup; the first subsequent bar (starting with the sweep bar
-  itself) that CLOSES back inside the range confirms it -> enter at that
-  close.
-  Stop: the actual extreme reached during the sweep (the sweeping bar's high
-  for a short, low for a long) -- literally 'beyond the manipulation wick',
-  no arbitrary buffer.
-  Target: the opposite boundary of the same range.
-  Session-bound: forces an exit at 16:00 ET if neither stop nor target has
-  hit, consistent with the no-overnight-hold rule used elsewhere in this repo.
+  Candle 1 (range): a completed HTF candle. CRH/CRL = its high/low.
+  Candle 2 (sweep):  the NEXT HTF candle. Price must wick beyond CRH or CRL
+                      (liquidity sweep) at some point during its formation.
+  Candle 3 (target):  price delivers toward the opposite extreme of Candle 1's
+                      range.
+
+  Two entry styles (the source material offers both):
+    'candle3_open' -- the basic version. Requires Candle 2 to have wicked
+      beyond the range AND its own final close to land back INSIDE the range
+      (this is checked without lookahead: candle 2 has already closed by the
+      time you'd act on candle 3's open, so this isn't cheating). If Candle 2
+      closes OUTSIDE the range instead, the setup is invalid -- no trade.
+      Entry: the open of Candle 3, fading the sweep direction.
+    'ltf_confirm' -- the 'advanced' version: instead of waiting for the whole
+      of Candle 2 to close, enter in real time during Candle 2 as soon as a
+      reversal-direction fair value gap forms after the sweep wick (same
+      definition already validated in liquidity_sweep_ifvg_sim.py). The
+      'must close back inside' rule does NOT apply here -- it's a real-time
+      confirmation trigger, not something you'd retroactively cancel a live
+      trade over once Candle 2 finishes forming.
+
+  Stop: the actual extreme wick reached during the sweep.
+  Target: 'opposite' -- the far boundary of Candle 1's range (CRL for a
+    short, CRH for a long); 'halfback' -- the 50% midpoint of Candle 1's
+    range (both are explicitly named in the source material).
+  Session-bound: forced exit at 16:00 ET if neither stop nor target hits,
+  consistent with the no-overnight-hold convention used elsewhere here.
 """
 from __future__ import annotations
 
@@ -50,86 +59,123 @@ def _aggregate(bars: list[dict], minutes: int) -> list[dict]:
 
 
 def run_backtest(bars_5m: list[dict], range_minutes: int = 60,
+                  entry_style: str = "ltf_confirm", target_mode: str = "opposite",
                   session_end_hour: float = 16.0) -> dict:
-    htf = _aggregate(bars_5m, range_minutes)
-    htf_period_of = {}  # maps 5m bar index -> completed HTF range (high, low) active during it
+    span = range_minutes * 60
+    htf = {h["t"]: h for h in _aggregate(bars_5m, span // 60)}
+
     et_5m = []
-    for b in bars_5m:
+    for b in sorted(bars_5m, key=lambda b: b["t"]):
         dt = datetime.fromtimestamp(b["t"], tz=timezone.utc).astimezone(ET)
         et_5m.append({**b, "dt": dt, "hour": dt.hour + dt.minute / 60})
+    n_total = len(et_5m)
+    idx_by_period_start: dict = {}
+    for i, b in enumerate(et_5m):
+        idx_by_period_start.setdefault((b["t"] // span) * span, []).append(i)
 
-    span = range_minutes * 60
-    # for each 5m bar, the "active range" is the most recently CLOSED htf candle
-    # strictly before the htf period this bar falls in
-    htf_by_start = {h["t"]: h for h in htf}
-    sorted_starts = sorted(htf_by_start)
-
-    open_trade = None
+    sorted_c1_starts = sorted(htf)
     trades = []
-    pending = None
 
-    for i, bar in enumerate(et_5m):
-        period_start = (bar["t"] // span) * span
-        # find previous htf period's candle (already closed)
-        prev_start = period_start - span
-        range_candle = htf_by_start.get(prev_start)
-
-        if open_trade is not None:
-            t = open_trade
-            timed_out = bar["hour"] >= session_end_hour
-            if t["direction"] == "short":
-                if bar["h"] >= t["stop_price"]:
-                    t.update(exit_price=t["stop_price"], result="loss"); trades.append(t); open_trade = None
-                elif bar["l"] <= t["target_price"]:
-                    t.update(exit_price=t["target_price"], result="win"); trades.append(t); open_trade = None
-                elif timed_out:
-                    t.update(exit_price=bar["c"], result="time_exit"); trades.append(t); open_trade = None
-            else:
-                if bar["l"] <= t["stop_price"]:
-                    t.update(exit_price=t["stop_price"], result="loss"); trades.append(t); open_trade = None
-                elif bar["h"] >= t["target_price"]:
-                    t.update(exit_price=t["target_price"], result="win"); trades.append(t); open_trade = None
-                elif timed_out:
-                    t.update(exit_price=bar["c"], result="time_exit"); trades.append(t); open_trade = None
+    for c1_start in sorted_c1_starts:
+        c2_start = c1_start + span
+        c1 = htf.get(c1_start)
+        c2_idxs = idx_by_period_start.get(c2_start)
+        if c1 is None or not c2_idxs:
+            continue
+        range_high, range_low = c1["h"], c1["l"]
+        if range_high <= range_low:
             continue
 
-        if range_candle is None:
-            continue
-        range_high, range_low = range_candle["h"], range_candle["l"]
+        pending = None
+        entry_price = entry_stop = entry_direction = entry_global_idx = None
 
-        if pending is not None and pending["range_start"] != prev_start:
-            pending = None  # range rolled over before confirmation -> stale, abandon
-
-        if pending is None:
-            if bar["h"] > range_high:
-                pending = {"direction": "short", "sweep_extreme": bar["h"], "range_start": prev_start}
-            elif bar["l"] < range_low:
-                pending = {"direction": "long", "sweep_extreme": bar["l"], "range_start": prev_start}
+        for j in c2_idxs:
+            bar = et_5m[j]
+            if pending is None:
+                if bar["h"] > range_high:
+                    pending = {"direction": "short", "extreme": bar["h"]}
+                elif bar["l"] < range_low:
+                    pending = {"direction": "long", "extreme": bar["l"]}
+                else:
+                    continue
             else:
-                continue
-            # same-bar rejection check falls through below
+                if pending["direction"] == "short":
+                    pending["extreme"] = max(pending["extreme"], bar["h"])
+                else:
+                    pending["extreme"] = min(pending["extreme"], bar["l"])
 
-        if pending["direction"] == "short":
-            pending["sweep_extreme"] = max(pending["sweep_extreme"], bar["h"])
-            if bar["c"] < range_high:
-                entry_price = bar["c"]
-                open_trade = {"direction": "short", "entry_price": entry_price, "date": bar["dt"].date(),
-                               "stop_price": pending["sweep_extreme"], "target_price": range_low}
-                pending = None
+            if entry_style == "ltf_confirm" and j >= c2_idxs[0] + 2:
+                b0, b2 = et_5m[j - 2], bar
+                is_fvg = (pending["direction"] == "short" and b0["l"] > b2["h"]) or \
+                         (pending["direction"] == "long" and b0["h"] < b2["l"])
+                if is_fvg:
+                    entry_price, entry_stop, entry_direction = bar["c"], pending["extreme"], pending["direction"]
+                    entry_global_idx = j
+                    break
+
+        if entry_style == "candle3_open" and pending is not None:
+            c2_close = et_5m[c2_idxs[-1]]["c"]
+            closed_inside = range_low <= c2_close <= range_high
+            c3_idxs = idx_by_period_start.get(c2_start + span)
+            if closed_inside and c3_idxs:
+                c3_first = c3_idxs[0]
+                candidate_price = et_5m[c3_first]["o"]
+                # Candle 3 could in principle gap open already beyond the sweep
+                # extreme (rare on liquid futures, but real on session-boundary
+                # gaps) -- that would make a stop-hit compute a positive pnl.
+                # Skip rather than let that distort the numbers.
+                stop_ok = (pending["direction"] == "short" and candidate_price < pending["extreme"]) or \
+                          (pending["direction"] == "long" and candidate_price > pending["extreme"])
+                if stop_ok:
+                    entry_price = candidate_price
+                    entry_stop = pending["extreme"]
+                    entry_direction = pending["direction"]
+                    entry_global_idx = c3_first
+
+        if entry_price is None:
+            continue
+
+        if target_mode == "halfback":
+            midpoint = (range_high + range_low) / 2
+            target_price = midpoint
         else:
-            pending["sweep_extreme"] = min(pending["sweep_extreme"], bar["l"])
-            if bar["c"] > range_low:
-                entry_price = bar["c"]
-                open_trade = {"direction": "long", "entry_price": entry_price, "date": bar["dt"].date(),
-                               "stop_price": pending["sweep_extreme"], "target_price": range_high}
-                pending = None
+            target_price = range_low if entry_direction == "short" else range_high
 
-    for t in trades:
-        stop_dist = abs(t["entry_price"] - t["stop_price"])
-        pnl_points = (t["entry_price"] - t["exit_price"]) if t["direction"] == "short" \
-            else (t["exit_price"] - t["entry_price"])
-        t["pnl_points"] = pnl_points
-        t["r_multiple"] = pnl_points / stop_dist if stop_dist else 0.0
+        # skip a target that's already behind the entry (can happen for candle3_open
+        # if price has run past the target before candle 3 even opens)
+        if entry_direction == "short" and target_price >= entry_price:
+            continue
+        if entry_direction == "long" and target_price <= entry_price:
+            continue
+
+        exit_price = exit_result = None
+        for k in range(entry_global_idx + 1, n_total):
+            bar = et_5m[k]
+            timed_out = bar["hour"] >= session_end_hour
+            if entry_direction == "short":
+                if bar["h"] >= entry_stop:
+                    exit_price, exit_result = entry_stop, "loss"; break
+                elif bar["l"] <= target_price:
+                    exit_price, exit_result = target_price, "win"; break
+                elif timed_out:
+                    exit_price, exit_result = bar["c"], "time_exit"; break
+            else:
+                if bar["l"] <= entry_stop:
+                    exit_price, exit_result = entry_stop, "loss"; break
+                elif bar["h"] >= target_price:
+                    exit_price, exit_result = target_price, "win"; break
+                elif timed_out:
+                    exit_price, exit_result = bar["c"], "time_exit"; break
+        if exit_price is None:
+            continue  # ran off the end of data without resolving
+
+        stop_dist = abs(entry_price - entry_stop)
+        pnl_points = (entry_price - exit_price) if entry_direction == "short" else (exit_price - entry_price)
+        trades.append({
+            "date": et_5m[entry_global_idx]["dt"].date(), "direction": entry_direction,
+            "entry_price": entry_price, "exit_price": exit_price, "result": exit_result,
+            "pnl_points": pnl_points, "r_multiple": pnl_points / stop_dist if stop_dist else 0.0,
+        })
 
     n = len(trades)
     wins = [t for t in trades if t["result"] == "win"]
