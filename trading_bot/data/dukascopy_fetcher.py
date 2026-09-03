@@ -80,13 +80,21 @@ def fetch_day(symbol: str, d: date, retries: int = 4, pause: float = 0.4) -> lis
     return bars
 
 
-def fetch_range(symbol: str, start: date, end: date, pause: float = 0.4) -> list[dict]:
+def fetch_range(symbol: str, start: date, end: date, pause: float = 0.4,
+                 retries: int = 6) -> tuple[list[dict], list[date]]:
     """Fetch every UTC calendar day from start to end (inclusive), skipping
-    weekends (market closed, no file). Ascending by time."""
+    weekends (market closed, no file). Ascending by time. A day that's still
+    rate-limited/unreachable after its own retries is SKIPPED (not fatal to
+    the whole range) and returned in the second element so gaps are visible
+    rather than silently dropped."""
     bars = []
+    failed = []
     d = start
     while d <= end:
         if d.weekday() < 5:  # Mon-Fri; FX/gold trades ~Sun 5pm ET - Fri 5pm ET but daily files
-            bars.extend(fetch_day(symbol, d, pause=pause))
+            try:
+                bars.extend(fetch_day(symbol, d, pause=pause, retries=retries))
+            except RuntimeError:
+                failed.append(d)
         d += timedelta(days=1)
-    return bars
+    return bars, failed
