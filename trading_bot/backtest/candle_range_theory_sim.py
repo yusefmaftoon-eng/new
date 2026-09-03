@@ -178,6 +178,7 @@ def run_backtest(bars_5m: list[dict], range_minutes: int = 60,
         trades.append({
             "date": et_5m[entry_global_idx]["dt"].date(), "direction": entry_direction,
             "entry_price": entry_price, "exit_price": exit_price, "result": exit_result,
+            "stop_points": stop_dist,
             "pnl_points": pnl_points, "r_multiple": pnl_points / stop_dist if stop_dist else 0.0,
         })
 
