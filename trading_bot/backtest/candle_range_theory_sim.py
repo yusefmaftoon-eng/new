@@ -153,9 +153,27 @@ def run_backtest(bars_5m: list[dict], range_minutes: int = 60,
             continue
 
         exit_price = exit_result = None
+        mfe_points = mae_points = 0.0
+        mfe_bar_offset = mae_bar_offset = None
         for k in range(entry_global_idx + 1, n_total):
             bar = et_5m[k]
             timed_out = bar["hour"] >= session_end_hour
+
+            # track max favorable/adverse excursion (in points, always >= 0) and
+            # WHICH one happened first -- needed downstream to know whether an
+            # intraday-trailing-drawdown floor had already ratcheted up (via this
+            # trade's own floating profit) before its worst dip, or not yet.
+            if entry_direction == "short":
+                fav = entry_price - bar["l"]
+                adv = bar["h"] - entry_price
+            else:
+                fav = bar["h"] - entry_price
+                adv = entry_price - bar["l"]
+            if fav > mfe_points:
+                mfe_points, mfe_bar_offset = fav, k
+            if adv > mae_points:
+                mae_points, mae_bar_offset = adv, k
+
             if entry_direction == "short":
                 if bar["h"] >= entry_stop:
                     exit_price, exit_result = entry_stop, "loss"; break
@@ -175,10 +193,11 @@ def run_backtest(bars_5m: list[dict], range_minutes: int = 60,
 
         stop_dist = abs(entry_price - entry_stop)
         pnl_points = (entry_price - exit_price) if entry_direction == "short" else (exit_price - entry_price)
+        mfe_first = mfe_bar_offset is not None and (mae_bar_offset is None or mfe_bar_offset <= mae_bar_offset)
         trades.append({
             "date": et_5m[entry_global_idx]["dt"].date(), "direction": entry_direction,
             "entry_price": entry_price, "exit_price": exit_price, "result": exit_result,
-            "stop_points": stop_dist,
+            "stop_points": stop_dist, "mfe_points": mfe_points, "mae_points": mae_points, "mfe_first": mfe_first,
             "pnl_points": pnl_points, "r_multiple": pnl_points / stop_dist if stop_dist else 0.0,
         })
 

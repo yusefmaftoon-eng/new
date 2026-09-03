@@ -4,15 +4,30 @@ drawdown limit, and a contract cap -- rather than just reporting raw R or
 $/contract, which ignore position sizing and the fact that busting the
 drawdown limit ENDS the attempt regardless of what the strategy does after.
 
-Two things this can't verify from here (see README/chat -- MyFundedFutures'
-fee/rules pages blocked automated access):
-  - Whether the $1000 max-loss is a STATIC limit (from the starting balance)
-    or a TRAILING one (from your highest-ever equity, the more common and
-    more restrictive prop-firm convention). Both are implemented; pick the
-    one your actual account rules state, or run both to bound the outcome.
-  - Real per-contract commission -- costs are modeled as an explicit,
-    separate flat $/round-trip parameter so you can plug in your real number
-    once you have it, rather than being silently baked into the P&L.
+drawdown_mode='trailing' models an INTRADAY trailing drawdown specifically
+(confirmed as the user's actual rule): the floor can ratchet up mid-trade
+from FLOATING (unrealized) profit, not only once a trade closes. Each trade
+carries its max-favorable and max-adverse excursion (mfe_points/mae_points)
+and which one happened first (mfe_first) -- computed from the real bar path
+in candle_range_theory_sim.py, not just entry/exit. That lets this sim
+reconstruct, for each trade: if the favorable excursion happened first, the
+peak ratchets up BEFORE the adverse dip is checked against the floor (worse
+for the trader); if the adverse excursion happened first, the dip is
+checked against the OLD, not-yet-ratcheted floor. A breach detected at the
+intra-trade extreme ends the attempt right there, at that extreme's equity
+-- not wherever the trade would have otherwise closed, since a real
+account gets force-flattened the instant it breaches, regardless of what
+the position would have gone on to do.
+
+'static' mode (a fixed floor at -max_loss from the starting balance, not
+ratcheting with profit at all) is also implemented for comparison, in case
+that turns out to be the actual rule for a different plan/stage -- it
+still uses the same intra-trade MAE check, since a static floor can still
+be breached mid-trade before recovering to a stored win.
+
+Real per-contract commission is modeled as an explicit, separate flat
+$/round-trip parameter -- plug in your real number once you have it,
+rather than it being silently baked into the P&L.
 """
 from __future__ import annotations
 
@@ -60,18 +75,45 @@ def simulate_evaluation(trades: list[dict], dollars_per_point: float,
             cushion = (max_loss - (peak - equity)) if drawdown_mode == "trailing" else (max_loss + equity)
             contracts = size_contracts(t["stop_points"], dollars_per_point, risk_per_trade_dollars,
                                         max_contracts, cushion)
-            if contracts > 0:
-                pnl = t["pnl_points"] * dollars_per_point * contracts - round_trip_fee_per_contract * contracts
-                equity += pnl
-                peak = max(peak, equity)
-                n_trades_taken += 1
-            else:
-                n_signals_skipped += 1
             end_date = t["date"]
             i += 1
 
-            breached = (equity <= -max_loss) if drawdown_mode == "static" else (equity <= peak - max_loss)
-            if breached:
+            if contracts == 0:
+                n_signals_skipped += 1
+                continue
+            n_trades_taken += 1
+
+            mfe_dollars = t["mfe_points"] * dollars_per_point * contracts
+            mae_dollars = t["mae_points"] * dollars_per_point * contracts
+            realized_pnl = t["pnl_points"] * dollars_per_point * contracts - round_trip_fee_per_contract * contracts
+
+            def floor_for(pk: float) -> float:
+                return -max_loss if drawdown_mode == "static" else pk - max_loss
+
+            if t["mfe_first"]:
+                peak = max(peak, equity + mfe_dollars)
+                worst_equity = equity - mae_dollars
+                if worst_equity <= floor_for(peak):
+                    equity = worst_equity
+                    outcome = "fail"
+                    break
+            else:
+                worst_equity = equity - mae_dollars
+                if worst_equity <= floor_for(peak):
+                    equity = worst_equity
+                    outcome = "fail"
+                    break
+                peak = max(peak, equity + mfe_dollars)
+
+            equity += realized_pnl
+            peak = max(peak, equity)
+
+            # rare gap in the two-checkpoint approximation: a trade that ran up a
+            # big favorable excursion (ratcheting the floor) and then gave most
+            # of it back to a smaller final close (time_exit) could still land
+            # below the now-higher floor even though neither tracked extreme
+            # alone triggered it -- catch that here too.
+            if equity <= floor_for(peak):
                 outcome = "fail"
                 break
             if equity >= profit_target:
