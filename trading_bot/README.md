@@ -104,11 +104,15 @@ Rules (`strategies/ifvg_strategy.py`), all non-discretionary:
 2. **SMT divergence** — at a 5m swing pivot behind the setup, MES and MNQ are
    compared in a matched time window: one instrument confirms a new
    high/low, the other doesn't.
-3. **Inverse FVG** — a 3-candle fair value gap against bias that later gets
-   closed through flips polarity (becomes support/resistance in the bias
-   direction).
+3. **Inverse FVG** — a 3-candle fair value gap against bias later gets
+   *engulfed*: a single candle whose open is already beyond the gap's far
+   edge and whose close clears the near edge, spanning the whole gap in one
+   move. It then flips polarity (becomes support/resistance in the bias
+   direction). A close that merely grazes past one edge after a slow
+   multi-candle grind doesn't count — that's erosion, not the decisive
+   reversal candle IFVG entries are built on.
 4. **Entry** — only inside the NY AM (09:30–11:00 ET) or NY PM
-   (13:30–16:00 ET) killzones, with R:R ≥ 1. Two selectable fill styles
+   (13:30–16:00 ET) killzones, with R:R ≥ 1. Three selectable fill styles
    (`--entry-mode`):
    - `retrace` (default) — wait for price to trade back into the just-inverted
      gap (a "tap") and fill there. Can time out unfilled if price never comes
@@ -118,18 +122,22 @@ Rules (`strategies/ifvg_strategy.py`), all non-discretionary:
      displacement leg already reached instead of a retracement — a larger,
      worse-priced stop distance for the same target, so R:R is measured from
      a worse starting point and more candidates fail the R:R ≥ 1 filter.
+   - `on_close` — fill at the engulfing candle's own close, one bar more
+     aggressive than `immediate`. A common backtest simplification (real
+     fills need a moment after that close prints); in practice nearly
+     identical to `immediate` since 5m futures rarely gap far bar-to-bar.
 5. **Stop / target** — stop beyond the swept swing (+1pt buffer); target is
    the nearer of prior-day high/low or the nearest opposing session swing.
 
-This is deliberately a rare, high-confluence setup, and Yahoo's free 5-minute
-bars only go back 60 days — a 60-day run typically produces single digits of
-qualifying trades per symbol. That's enough to confirm the engine (bias, SMT,
-FVG detection/inversion, entry/stop/target simulation, SQLite export) is
-wired correctly end to end; it is **not** a statistically meaningful sample.
-For a real read on the edge: run against 1–2 years of intraday data from a
-paid vendor (Databento, Polygon, IQFeed) or your own broker/platform export,
-or loosen one filter at a time (drop the SMT requirement, widen the
-killzones) to see how much each condition is actually contributing.
+Yahoo's free 5-minute bars only go back 60 days, so this is still a modest
+sample — but with the engulfing-candle inversion rule it's no longer single
+digits: 9 trades (`retrace`) to 12 (`immediate`/`on_close`) over the last 60
+days, all three modes net positive (56–67% win rate, +$205 to +$521 combined
+across MES+MNQ, 1 contract each). Encouraging, but still short of what you'd
+want before trusting the edge. For a real read: run against 1–2 years of
+intraday data from a paid vendor (Databento, Polygon, IQFeed) or your own
+broker/platform export, or loosen the SMT requirement to see how much it's
+actually contributing versus just cutting sample size.
 
 Uses `backtest/futures_engine.py` rather than the vectorized `backtest/engine.py`
 above, because entries are discrete (a specific tap into a specific gap),
