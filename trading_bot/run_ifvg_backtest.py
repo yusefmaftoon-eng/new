@@ -36,6 +36,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--symbol", default="both", choices=["MES", "MNQ", "both"])
     parser.add_argument("--range", default="60d", help="Yahoo range string, e.g. 30d/60d (5m bars cap at 60d)")
+    parser.add_argument("--entry-mode", default="retrace", choices=["retrace", "immediate"],
+                         help="'retrace' waits for a tap back into the inverted gap; "
+                              "'immediate' fills at the next bar's open right when it inverts")
     parser.add_argument("--db-path", default=None, help="optional SQLite path to persist bars/fvgs/trades")
     args = parser.parse_args()
 
@@ -52,7 +55,7 @@ def main() -> None:
 
     for sym in symbols:
         other = PAIR[sym]
-        trades, fvgs = run_ifvg_backtest(sym, bars[sym], bars[other], bias_cache[sym])
+        trades, fvgs = run_ifvg_backtest(sym, bars[sym], bars[other], bias_cache[sym], entry_mode=args.entry_mode)
         report = summarize_trades(trades)
         print(f"\n=== {sym} ===")
         print(json.dumps(report, indent=2, default=float))

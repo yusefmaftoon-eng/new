@@ -107,8 +107,17 @@ Rules (`strategies/ifvg_strategy.py`), all non-discretionary:
 3. **Inverse FVG** — a 3-candle fair value gap against bias that later gets
    closed through flips polarity (becomes support/resistance in the bias
    direction).
-4. **Entry** — the first retrace tap into that inverted gap, only inside the
-   NY AM (09:30–11:00 ET) or NY PM (13:30–16:00 ET) killzones, with R:R ≥ 1.
+4. **Entry** — only inside the NY AM (09:30–11:00 ET) or NY PM
+   (13:30–16:00 ET) killzones, with R:R ≥ 1. Two selectable fill styles
+   (`--entry-mode`):
+   - `retrace` (default) — wait for price to trade back into the just-inverted
+     gap (a "tap") and fill there. Can time out unfilled if price never comes
+     back.
+   - `immediate` — skip the wait, fill at the next bar's open right when the
+     gap inverts. Never misses the setup, but pays whatever price the
+     displacement leg already reached instead of a retracement — a larger,
+     worse-priced stop distance for the same target, so R:R is measured from
+     a worse starting point and more candidates fail the R:R ≥ 1 filter.
 5. **Stop / target** — stop beyond the swept swing (+1pt buffer); target is
    the nearer of prior-day high/low or the nearest opposing session swing.
 

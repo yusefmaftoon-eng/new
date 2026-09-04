@@ -21,9 +21,22 @@ from ..strategies.ifvg_strategy import (
 
 
 def run_ifvg_backtest(sym: str, df_5m: pd.DataFrame, df_5m_other: pd.DataFrame,
-                       bias_by_date: dict) -> tuple[list[dict], list[dict]]:
+                       bias_by_date: dict, entry_mode: str = "retrace",
+                       retrace_lookahead: int = 24) -> tuple[list[dict], list[dict]]:
     """Simulate the IFVG strategy for one instrument. `df_5m_other` is the
-    correlated instrument used for SMT divergence (e.g. MNQ when sym='MES')."""
+    correlated instrument used for SMT divergence (e.g. MNQ when sym='MES').
+
+    entry_mode:
+      'retrace'   -- wait for price to trade back into the just-inverted gap
+                     (a "tap"), and fill there. Can time out unfilled.
+      'immediate' -- skip the wait: fill at the next bar's open right after
+                     the gap inverts. Never misses the setup, but pays
+                     whatever price the displacement leg already reached
+                     instead of a retracement, so entries run worse on
+                     average and R:R is measured from a worse starting price.
+    """
+    if entry_mode not in ("retrace", "immediate"):
+        raise ValueError(f"unsupported entry_mode {entry_mode!r}")
     multiplier = CONTRACT_MULTIPLIER[sym]
     swings_5m = find_fractal_swings(df_5m, 2, 2)
     fvgs = mark_inversions(df_5m, detect_fvgs(df_5m))
@@ -105,22 +118,38 @@ def run_ifvg_backtest(sym: str, df_5m: pd.DataFrame, df_5m_other: pd.DataFrame,
             used_fvg_ids.add(gid)
             g["tapped_pos"] = pos
 
-            for look in range(pos + 1, min(pos + 24, n)):
-                touched = (zone_bottom <= lows[look] <= zone_top) if entry_dir == "long" else (zone_bottom <= highs[look] <= zone_top)
-                crossed = (lows[look] <= zone_bottom) if entry_dir == "long" else (highs[look] >= zone_top)
-                if touched or crossed:
-                    entry_price = opens[look] if (crossed and not touched) else (zone_top if entry_dir == "long" else zone_bottom)
+            if entry_mode == "immediate":
+                # Fill at the next bar's open, right after the close that confirmed the
+                # inversion -- no lookahead onto the bar that produced the signal itself.
+                look = pos + 1
+                if look < n:
+                    entry_price = opens[look]
                     denom = abs(entry_price - stop)
                     rr = abs(target - entry_price) / denom if denom > 1e-9 else 0
-                    if rr < 1.0:
+                    if rr >= 1.0:
+                        entry_ts = df_5m.index[look]
+                        open_trade = {
+                            "symbol": sym, "dir": entry_dir, "entry": entry_price, "entry_time": entry_ts,
+                            "stop": stop, "target": target, "bias": bias, "fvg_kind": g["kind"], "date": d,
+                            "flatten_by": flatten_deadline(entry_ts.timetz().replace(tzinfo=None)),
+                        }
+            else:
+                for look in range(pos + 1, min(pos + retrace_lookahead, n)):
+                    touched = (zone_bottom <= lows[look] <= zone_top) if entry_dir == "long" else (zone_bottom <= highs[look] <= zone_top)
+                    crossed = (lows[look] <= zone_bottom) if entry_dir == "long" else (highs[look] >= zone_top)
+                    if touched or crossed:
+                        entry_price = opens[look] if (crossed and not touched) else (zone_top if entry_dir == "long" else zone_bottom)
+                        denom = abs(entry_price - stop)
+                        rr = abs(target - entry_price) / denom if denom > 1e-9 else 0
+                        if rr < 1.0:
+                            break
+                        entry_ts = df_5m.index[look]
+                        open_trade = {
+                            "symbol": sym, "dir": entry_dir, "entry": entry_price, "entry_time": entry_ts,
+                            "stop": stop, "target": target, "bias": bias, "fvg_kind": g["kind"], "date": d,
+                            "flatten_by": flatten_deadline(entry_ts.timetz().replace(tzinfo=None)),
+                        }
                         break
-                    entry_ts = df_5m.index[look]
-                    open_trade = {
-                        "symbol": sym, "dir": entry_dir, "entry": entry_price, "entry_time": entry_ts,
-                        "stop": stop, "target": target, "bias": bias, "fvg_kind": g["kind"], "date": d,
-                        "flatten_by": flatten_deadline(entry_ts.timetz().replace(tzinfo=None)),
-                    }
-                    break
             break
 
     return trades, fvgs
