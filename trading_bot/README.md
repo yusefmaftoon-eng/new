@@ -1,11 +1,14 @@
-# Trading bot backtesting framework (crypto + Polymarket)
+# Trading bot backtesting framework (crypto + Polymarket + futures)
 
-A strategy + backtest framework for two markets, built against **public, no-auth
-APIs**:
+A strategy + backtest framework for three markets, built against **public,
+no-auth APIs**:
 
 - **Crypto**: Binance's public REST API (`api.binance.com`) for OHLCV candles.
 - **Polymarket**: the public Gamma API (`gamma-api.polymarket.com`) for resolved
   markets and the CLOB API (`clob.polymarket.com`) for price history.
+- **Futures (MES/MNQ)**: Yahoo Finance's public chart API for 5-minute bars.
+  Marketstack (the equities/FX/crypto provider some earlier scaffolding in
+  this repo referenced) does not carry CME futures data, so it isn't used here.
 
 `trader-dev` (`mcp.trader.dev`) is not wired in — it needs auth this session
 didn't have credentials for, and separately, this session's network egress
@@ -84,6 +87,47 @@ Each resolved market contributes at most one trade (buy-and-hold-to-resolution,
 matching how most Polymarket positions are actually taken). Fees are modeled
 as a flat `--fee-pct` of stake — tune to match real spread/gas costs.
 
+## IFVG backtest (MES / MNQ micro futures)
+
+An ICT/SMT-style strategy: higher-timeframe bias before the NY open, SMT
+divergence between MES and MNQ, and an entry on the retrace into a freshly
+inverted fair value gap, targeting resting liquidity.
+
+```bash
+python -m trading_bot.run_ifvg_backtest --symbol both --db-path ifvg.sqlite
+```
+
+Rules (`strategies/ifvg_strategy.py`), all non-discretionary:
+1. **Bias** — 1H confirmed swing structure (2-bar fractals) as of 09:30 ET.
+   Higher-high + higher-low → bullish; lower-high + lower-low → bearish;
+   anything mixed → no trade that day.
+2. **SMT divergence** — at a 5m swing pivot behind the setup, MES and MNQ are
+   compared in a matched time window: one instrument confirms a new
+   high/low, the other doesn't.
+3. **Inverse FVG** — a 3-candle fair value gap against bias that later gets
+   closed through flips polarity (becomes support/resistance in the bias
+   direction).
+4. **Entry** — the first retrace tap into that inverted gap, only inside the
+   NY AM (09:30–11:00 ET) or NY PM (13:30–16:00 ET) killzones, with R:R ≥ 1.
+5. **Stop / target** — stop beyond the swept swing (+1pt buffer); target is
+   the nearer of prior-day high/low or the nearest opposing session swing.
+
+This is deliberately a rare, high-confluence setup, and Yahoo's free 5-minute
+bars only go back 60 days — a 60-day run typically produces single digits of
+qualifying trades per symbol. That's enough to confirm the engine (bias, SMT,
+FVG detection/inversion, entry/stop/target simulation, SQLite export) is
+wired correctly end to end; it is **not** a statistically meaningful sample.
+For a real read on the edge: run against 1–2 years of intraday data from a
+paid vendor (Databento, Polygon, IQFeed) or your own broker/platform export,
+or loosen one filter at a time (drop the SMT requirement, widen the
+killzones) to see how much each condition is actually contributing.
+
+Uses `backtest/futures_engine.py` rather than the vectorized `backtest/engine.py`
+above, because entries are discrete (a specific tap into a specific gap),
+need a second correlated instrument for SMT confirmation, and exit on
+whichever of a fixed stop/target is hit first — not a per-bar position
+weight applied to the next bar's return.
+
 ## Layout
 
 ```
@@ -91,15 +135,19 @@ trading_bot/
   data/
     crypto_fetcher.py       # Binance klines
     polymarket_fetcher.py   # Gamma resolved markets + CLOB price history
+    futures_fetcher.py      # Yahoo Finance intraday bars (MES/MNQ)
   strategies/
     crypto_strategy.py
     polymarket_strategy.py
+    ifvg_strategy.py         # bias / SMT divergence / FVG detection & inversion
   backtest/
     engine.py               # time-series backtest (crypto)
     polymarket_engine.py    # event-based backtest (Polymarket)
+    futures_engine.py       # trade-based backtest (IFVG, MES/MNQ)
     metrics.py               # Sharpe, CAGR, max drawdown, win rate
   run_crypto_backtest.py
   run_polymarket_backtest.py
+  run_ifvg_backtest.py
 ```
 
 ## Known limitations / next steps
