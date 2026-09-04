@@ -94,17 +94,29 @@ fireSignal = false
 
 if state == "mss_broken" and not na(mssBarIndex) and bar_index >= mssBarIndex + 2
     if dir == "short" and bearFVG
-        entryPrice := close
-        stopPrice := sweepExtreme
-        targetPrice := c1Low
-        state := "in_trade"
-        fireSignal := true
+        candidateTarget = c1Low
+        // matches the Python backtest's validity guard: if price has already
+        // run past the target before entry (degenerate case), discard the
+        // setup rather than fire a trade with the target on the wrong side
+        // of entry -- this was the bug the user's screenshot caught.
+        if candidateTarget < close
+            entryPrice := close
+            stopPrice := sweepExtreme
+            targetPrice := candidateTarget
+            state := "in_trade"
+            fireSignal := true
+        else
+            state := "flat"
     else if dir == "long" and bullFVG
-        entryPrice := close
-        stopPrice := sweepExtreme
-        targetPrice := c1High
-        state := "in_trade"
-        fireSignal := true
+        candidateTarget = c1High
+        if candidateTarget > close
+            entryPrice := close
+            stopPrice := sweepExtreme
+            targetPrice := candidateTarget
+            state := "in_trade"
+            fireSignal := true
+        else
+            state := "flat"
 
 // manage the open trade: stop / target / session-end -> back to flat
 if state == "in_trade"
