@@ -1,0 +1,140 @@
+//@version=5
+indicator("A+ CRT Signal (60m range, mss_fvg entry, kill-zone)", overlay=true, max_lines_count=50, max_labels_count=50)
+
+// Faithful port of trading_bot/backtest/candle_range_theory_sim.py's
+// entry_style='mss_fvg', target_mode='opposite', with sweep_hour_window
+// restricted to kill zones -- the one strategy this session's backtesting
+// found a real, if still modest-sample, edge in (MES, 60m range, real
+// Lifetime-tier Tradovate fees). Run this on a 5-minute MES chart.
+//
+// Not ported here: position sizing (use trading_bot/position_size_calc.py
+// with the stop-points value shown in the signal label -- $200/trade risk,
+// capped at 20 contracts) and the HTF Point-of-Interest requirement from
+// the original 'A+' definition (Daily Order Block / weekly liquidity pool),
+// which was never implemented in the Python version either -- this is a
+// partial, not full, A+ filter.
+//
+// Repainting note: the request.security() calls below use the [1] offset
+// specifically to reference the last CLOSED higher-timeframe candle, not
+// the currently-forming one -- this is the standard non-repainting pattern.
+// Still, sanity-check a stretch of historical signals on this chart against
+// the Python backtest's trade log before trusting live alerts.
+
+// ---------------- Inputs ----------------
+htfString        = input.timeframe("60", "Range timeframe (Candle 1 / Candle 2)")
+useLondon        = input.bool(true, "Kill zone: London Open (02:00-05:00 ET)")
+useSilverBullet  = input.bool(true, "Kill zone: NY Silver Bullet (10:00-11:00 ET)")
+sessionEndHour   = input.int(16, "Force-flat hour (ET)", minval=0, maxval=23)
+
+// ---------------- HTF range: last CLOSED higher-timeframe candle (Candle 1) ----------------
+c1High     = request.security(syminfo.tickerid, htfString, high[1], lookahead=barmerge.lookahead_off)
+c1Low      = request.security(syminfo.tickerid, htfString, low[1],  lookahead=barmerge.lookahead_off)
+htfBarTime = request.security(syminfo.tickerid, htfString, time,    lookahead=barmerge.lookahead_off)
+
+// ---------------- ET hour, kill-zone check ----------------
+etHour = hour(time, "America/New_York") + minute(time, "America/New_York") / 60.0
+inKillZone = (useLondon and etHour >= 2 and etHour < 5) or (useSilverBullet and etHour >= 10 and etHour < 11)
+
+// ---------------- causal swing points: 1-bar fractal, confirmed 1 bar later ----------------
+swingHigh = ta.pivothigh(1, 1)
+swingLow  = ta.pivotlow(1, 1)
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+if not na(swingHigh)
+    lastSwingHigh := swingHigh
+if not na(swingLow)
+    lastSwingLow := swingLow
+
+// ---------------- state machine ----------------
+var string state       = "flat"   // "flat" | "pending" | "mss_broken" | "in_trade"
+var string dir         = na
+var float  sweepExtreme = na
+var float  entryPrice  = na
+var float  stopPrice   = na
+var float  targetPrice = na
+var int    mssBarIndex = na
+var int    c2StartTime = -1
+
+// new Candle-2 period -> abandon any unresolved pending/mss_broken setup
+newPeriod = not na(htfBarTime) and htfBarTime != c2StartTime
+if newPeriod
+    c2StartTime := htfBarTime
+    if state == "pending" or state == "mss_broken"
+        state := "flat"
+        dir := na
+
+// look for a new sweep only when flat and inside a kill zone
+if state == "flat" and inKillZone and not na(c1High) and not na(c1Low)
+    if high > c1High
+        state := "pending"
+        dir := "short"
+        sweepExtreme := high
+    else if low < c1Low
+        state := "pending"
+        dir := "long"
+        sweepExtreme := low
+
+// track the running sweep extreme while a setup is developing
+if state == "pending" or state == "mss_broken"
+    sweepExtreme := dir == "short" ? math.max(sweepExtreme, high) : math.min(sweepExtreme, low)
+
+// MSS: close beyond the most recent post-sweep swing point
+if state == "pending"
+    if dir == "short" and not na(lastSwingLow) and close < lastSwingLow
+        state := "mss_broken"
+        mssBarIndex := bar_index
+    else if dir == "long" and not na(lastSwingHigh) and close > lastSwingHigh
+        state := "mss_broken"
+        mssBarIndex := bar_index
+
+// FVG after MSS -> entry (needs >=2 bars past the MSS bar, matching the Python gate)
+bearFVG = low[2] > high
+bullFVG = high[2] < low
+fireSignal = false
+
+if state == "mss_broken" and not na(mssBarIndex) and bar_index >= mssBarIndex + 2
+    if dir == "short" and bearFVG
+        entryPrice := close
+        stopPrice := sweepExtreme
+        targetPrice := c1Low
+        state := "in_trade"
+        fireSignal := true
+    else if dir == "long" and bullFVG
+        entryPrice := close
+        stopPrice := sweepExtreme
+        targetPrice := c1High
+        state := "in_trade"
+        fireSignal := true
+
+// manage the open trade: stop / target / session-end -> back to flat
+if state == "in_trade"
+    if dir == "short"
+        if high >= stopPrice or low <= targetPrice or etHour >= sessionEndHour
+            state := "flat"
+    else
+        if low <= stopPrice or high >= targetPrice or etHour >= sessionEndHour
+            state := "flat"
+
+// ---------------- plotting & alerts ----------------
+plot(c1High, "Candle 1 High (CRH)", color=color.new(color.orange, 40), style=plot.style_stepline)
+plot(c1Low,  "Candle 1 Low (CRL)",  color=color.new(color.orange, 40), style=plot.style_stepline)
+
+plotshape(fireSignal and dir == "short", title="Short signal", style=shape.triangledown,
+          location=location.abovebar, color=color.red, size=size.small)
+plotshape(fireSignal and dir == "long", title="Long signal", style=shape.triangleup,
+          location=location.belowbar, color=color.green, size=size.small)
+
+if fireSignal
+    stopPts = math.abs(entryPrice - stopPrice)
+    label.new(bar_index, dir == "short" ? high : low,
+      text = (dir == "short" ? "A+ SHORT" : "A+ LONG") +
+             "\nEntry: " + str.tostring(entryPrice, format.mintick) +
+             "\nStop: " + str.tostring(stopPrice, format.mintick) + " (" + str.tostring(stopPts, "#.##") + " pts)" +
+             "\nTarget: " + str.tostring(targetPrice, format.mintick) +
+             "\n-> position_size_calc.py " + str.tostring(stopPts, "#.##"),
+      style = dir == "short" ? label.style_label_down : label.style_label_up,
+      color = dir == "short" ? color.red : color.green,
+      textcolor = color.white, size = size.small)
+
+alertcondition(fireSignal and dir == "short", title="A+ CRT Short", message="A+ CRT SHORT signal fired on {{ticker}} at {{close}}")
+alertcondition(fireSignal and dir == "long",  title="A+ CRT Long",  message="A+ CRT LONG signal fired on {{ticker}} at {{close}}")
