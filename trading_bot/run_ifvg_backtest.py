@@ -36,9 +36,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--symbol", default="both", choices=["MES", "MNQ", "both"])
     parser.add_argument("--range", default="60d", help="Yahoo range string, e.g. 30d/60d (5m bars cap at 60d)")
-    parser.add_argument("--entry-mode", default="retrace", choices=["retrace", "immediate"],
+    parser.add_argument("--entry-mode", default="retrace", choices=["retrace", "immediate", "on_close"],
                          help="'retrace' waits for a tap back into the inverted gap; "
-                              "'immediate' fills at the next bar's open right when it inverts")
+                              "'immediate' fills at the next bar's open right when it inverts; "
+                              "'on_close' fills at the engulfing candle's own close")
     parser.add_argument("--db-path", default=None, help="optional SQLite path to persist bars/fvgs/trades")
     args = parser.parse_args()
 

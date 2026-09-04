@@ -34,8 +34,13 @@ def run_ifvg_backtest(sym: str, df_5m: pd.DataFrame, df_5m_other: pd.DataFrame,
                      whatever price the displacement leg already reached
                      instead of a retracement, so entries run worse on
                      average and R:R is measured from a worse starting price.
+      'on_close'  -- fill at the engulfing candle's own close, the instant it's
+                     confirmed inverted. One tick more aggressive than
+                     'immediate' (no next-bar wait at all) -- a common
+                     backtest simplification, since a real fill still needs a
+                     moment to hit the book after that close prints.
     """
-    if entry_mode not in ("retrace", "immediate"):
+    if entry_mode not in ("retrace", "immediate", "on_close"):
         raise ValueError(f"unsupported entry_mode {entry_mode!r}")
     multiplier = CONTRACT_MULTIPLIER[sym]
     swings_5m = find_fractal_swings(df_5m, 2, 2)
@@ -118,12 +123,13 @@ def run_ifvg_backtest(sym: str, df_5m: pd.DataFrame, df_5m_other: pd.DataFrame,
             used_fvg_ids.add(gid)
             g["tapped_pos"] = pos
 
-            if entry_mode == "immediate":
-                # Fill at the next bar's open, right after the close that confirmed the
-                # inversion -- no lookahead onto the bar that produced the signal itself.
-                look = pos + 1
+            if entry_mode in ("immediate", "on_close"):
+                # 'on_close' fills at the engulfing candle's own close (pos); 'immediate'
+                # waits one bar for the next open (pos+1) to avoid filling on the same
+                # bar that produced the signal.
+                look = pos if entry_mode == "on_close" else pos + 1
                 if look < n:
-                    entry_price = opens[look]
+                    entry_price = closes[look] if entry_mode == "on_close" else opens[look]
                     denom = abs(entry_price - stop)
                     rr = abs(target - entry_price) / denom if denom > 1e-9 else 0
                     if rr >= 1.0:

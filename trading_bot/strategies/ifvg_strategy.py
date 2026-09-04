@@ -98,14 +98,19 @@ def detect_fvgs(df: pd.DataFrame) -> list[dict]:
 
 
 def mark_inversions(df: pd.DataFrame, fvgs: list[dict]) -> list[dict]:
-    """Flag the first bar (if any) where each FVG gets closed through, i.e. inverted."""
-    closes = df["close"].values
+    """Flag the first bar (if any) where each FVG is inverted by a single candle that
+    completely engulfs it -- opens beyond the far edge and closes beyond the near edge,
+    spanning the whole gap in one move. A candle that only grinds its close past one
+    edge (without its open already clearing the other side) doesn't count: that's a
+    slow erosion of the gap, not the decisive reversal candle IFVG entries are built on.
+    """
+    opens, closes = df["open"].values, df["close"].values
     for g in fvgs:
         for j in range(g["formed_pos"] + 1, len(df)):
-            if g["kind"] == "bull" and closes[j] < g["bottom"]:
+            if g["kind"] == "bull" and opens[j] >= g["top"] and closes[j] < g["bottom"]:
                 g["inverted_pos"], g["inverted_time"] = j, df.index[j]
                 break
-            if g["kind"] == "bear" and closes[j] > g["top"]:
+            if g["kind"] == "bear" and opens[j] <= g["bottom"] and closes[j] > g["top"]:
                 g["inverted_pos"], g["inverted_time"] = j, df.index[j]
                 break
     return fvgs
