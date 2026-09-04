@@ -1,0 +1,123 @@
+//@version=5
+strategy("A+ CRT Strategy (60m range, mss_fvg entry, kill-zone)", overlay=true,
+     initial_capital=1000, currency=currency.USD,
+     commission_type=strategy.commission.cash_per_contract, commission_value=0.47,
+     slippage=1, pyramiding=0, calc_on_every_tick=false,
+     max_lines_count=50, max_labels_count=50)
+
+// Same logic as crt_a_plus_mes.pine (the indicator version), converted to a
+// strategy() so TradingView's Strategy Tester tab shows real performance
+// stats (net profit, win rate, profit factor, max drawdown, equity curve)
+// instead of just plotting signals on the chart. Run this on a 5-minute
+// MES chart -- the range candle (Candle 1) is 1 hour, per htfString below.
+//
+// commission_value=0.47/contract/side -> $0.94 round-trip, matching the
+// real Tradovate Lifetime-tier all-in cost (commission + CME exchange/NFA
+// fees) found earlier this session -- change this to your actual rate.
+// Position sizing: $200 risk/trade, capped at 20 contracts, computed per
+// trade from that trade's real stop distance -- same as
+// trading_bot/position_size_calc.py, just computed inline here so the
+// Strategy Tester's P&L reflects real position sizing, not 1 contract flat.
+//
+// Not ported here (same as the indicator version): the HTF Point-of-
+// Interest ('A+') requirement -- Daily Order Block / weekly liquidity pool
+// detection was never built in the Python version either.
+
+// ---------------- Inputs ----------------
+htfString        = input.timeframe("60", "Range timeframe (Candle 1 / Candle 2)")
+useLondon        = input.bool(true, "Kill zone: London Open (02:00-05:00 ET)")
+useSilverBullet  = input.bool(true, "Kill zone: NY Silver Bullet (10:00-11:00 ET)")
+sessionEndHour   = input.int(16, "Force-flat hour (ET)", minval=0, maxval=23)
+riskPerTrade     = input.float(200.0, "Risk per trade ($)")
+maxContracts     = input.int(20, "Max contracts")
+dollarsPerPoint  = input.float(5.0, "$ per point (MES = 5.0)")
+
+// ---------------- HTF range: last CLOSED higher-timeframe candle (Candle 1) ----------------
+c1High     = request.security(syminfo.tickerid, htfString, high[1], lookahead=barmerge.lookahead_off)
+c1Low      = request.security(syminfo.tickerid, htfString, low[1],  lookahead=barmerge.lookahead_off)
+htfBarTime = request.security(syminfo.tickerid, htfString, time,    lookahead=barmerge.lookahead_off)
+
+// ---------------- ET hour, kill-zone check ----------------
+etHour = hour(time, "America/New_York") + minute(time, "America/New_York") / 60.0
+inKillZone = (useLondon and etHour >= 2 and etHour < 5) or (useSilverBullet and etHour >= 10 and etHour < 11)
+
+// ---------------- causal swing points: 1-bar fractal, confirmed 1 bar later ----------------
+swingHigh = ta.pivothigh(1, 1)
+swingLow  = ta.pivotlow(1, 1)
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+if not na(swingHigh)
+    lastSwingHigh := swingHigh
+if not na(swingLow)
+    lastSwingLow := swingLow
+
+// ---------------- state machine (entry detection only -- exits are native strategy.exit) ----------------
+var string state        = "flat"   // "flat" | "pending" | "mss_broken"
+var string dir          = na
+var float  sweepExtreme = na
+var int    mssBarIndex  = na
+var int    c2StartTime  = -1
+
+flatNow = strategy.position_size == 0
+
+// new Candle-2 period -> abandon any unresolved pending/mss_broken setup
+newPeriod = not na(htfBarTime) and htfBarTime != c2StartTime
+if newPeriod
+    c2StartTime := htfBarTime
+    if state == "pending" or state == "mss_broken"
+        state := "flat"
+        dir := na
+
+// look for a new sweep only when flat (no open position) and inside a kill zone
+if flatNow and state == "flat" and inKillZone and not na(c1High) and not na(c1Low)
+    if high > c1High
+        state := "pending"
+        dir := "short"
+        sweepExtreme := high
+    else if low < c1Low
+        state := "pending"
+        dir := "long"
+        sweepExtreme := low
+
+if state == "pending" or state == "mss_broken"
+    sweepExtreme := dir == "short" ? math.max(sweepExtreme, high) : math.min(sweepExtreme, low)
+
+if state == "pending"
+    if dir == "short" and not na(lastSwingLow) and close < lastSwingLow
+        state := "mss_broken"
+        mssBarIndex := bar_index
+    else if dir == "long" and not na(lastSwingHigh) and close > lastSwingHigh
+        state := "mss_broken"
+        mssBarIndex := bar_index
+
+bearFVG = low[2] > high
+bullFVG = high[2] < low
+
+if state == "mss_broken" and not na(mssBarIndex) and bar_index >= mssBarIndex + 2
+    if dir == "short" and bearFVG and c1Low < close
+        stopPts = sweepExtreme - close
+        contracts = math.min(maxContracts, math.floor(riskPerTrade / (stopPts * dollarsPerPoint)))
+        if contracts >= 1
+            strategy.entry("A+ Short", strategy.short, qty=contracts)
+            strategy.exit("Exit Short", "A+ Short", stop=sweepExtreme, limit=c1Low)
+        state := "flat"
+        dir := na
+    else if dir == "long" and bullFVG and c1High > close
+        stopPts = close - sweepExtreme
+        contracts = math.min(maxContracts, math.floor(riskPerTrade / (stopPts * dollarsPerPoint)))
+        if contracts >= 1
+            strategy.entry("A+ Long", strategy.long, qty=contracts)
+            strategy.exit("Exit Long", "A+ Long", stop=sweepExtreme, limit=c1High)
+        state := "flat"
+        dir := na
+    else
+        state := "flat"
+        dir := na
+
+// force-flat at session end regardless of stop/target
+if strategy.position_size != 0 and etHour >= sessionEndHour
+    strategy.close_all(comment="session end")
+
+// ---------------- plotting ----------------
+plot(c1High, "Candle 1 High (CRH)", color=color.new(color.orange, 40), style=plot.style_stepline)
+plot(c1Low,  "Candle 1 Low (CRL)",  color=color.new(color.orange, 40), style=plot.style_stepline)
