@@ -71,6 +71,19 @@ def simulate_evaluation(trades: list[dict], dollars_per_point: float,
         start_date = trades[i]["date"]
         outcome = None
         end_date = start_date
+
+        def floor_for(pk: float) -> float:
+            # Real rule: once the account's peak reaches the "buffer zone"
+            # (start balance + max_loss), the trailing drawdown locks at
+            # breakeven and stops trailing further even as the account keeps
+            # making profit. peak only ever increases (running max), so this
+            # check self-latches once true.
+            if drawdown_mode == "static":
+                return -max_loss
+            if pk >= max_loss:
+                return 0.0
+            return pk - max_loss
+
         while i < n:
             t = trades[i]
             if fixed_contracts is not None:
@@ -80,7 +93,7 @@ def simulate_evaluation(trades: list[dict], dollars_per_point: float,
                 # account's room shrinks.
                 contracts = min(fixed_contracts, max_contracts)
             else:
-                cushion = (max_loss - (peak - equity)) if drawdown_mode == "trailing" else (max_loss + equity)
+                cushion = equity - floor_for(peak)
                 contracts = size_contracts(t["stop_points"], dollars_per_point, risk_per_trade_dollars,
                                             max_contracts, cushion)
             end_date = t["date"]
@@ -94,9 +107,6 @@ def simulate_evaluation(trades: list[dict], dollars_per_point: float,
             mfe_dollars = t["mfe_points"] * dollars_per_point * contracts
             mae_dollars = t["mae_points"] * dollars_per_point * contracts
             realized_pnl = t["pnl_points"] * dollars_per_point * contracts - round_trip_fee_per_contract * contracts
-
-            def floor_for(pk: float) -> float:
-                return -max_loss if drawdown_mode == "static" else pk - max_loss
 
             if t["mfe_first"]:
                 peak = max(peak, equity + mfe_dollars)
@@ -200,6 +210,11 @@ def simulate_funded_account(trades: list[dict], dollars_per_point: float, max_lo
     payout_log = []
 
     def floor_for(pk: float) -> float:
+        # Same buffer-zone lock as the evaluation stage: once peak reaches
+        # start balance + max_loss, the trailing floor freezes at breakeven
+        # permanently instead of continuing to ratchet up with peak.
+        if pk >= max_loss:
+            return 0.0
         return pk - max_loss
 
     for t in trades:
@@ -234,7 +249,7 @@ def simulate_funded_account(trades: list[dict], dollars_per_point: float, max_lo
         if fixed_contracts is not None:
             contracts = min(fixed_contracts, max_contracts)
         else:
-            cushion = max_loss - (peak - equity)
+            cushion = equity - floor_for(peak)
             contracts = size_contracts(t["stop_points"], dollars_per_point, risk_per_trade_dollars,
                                         max_contracts, cushion)
         if contracts == 0:
