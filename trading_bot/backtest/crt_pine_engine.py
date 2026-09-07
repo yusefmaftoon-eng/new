@@ -28,7 +28,13 @@ def run_crt_pine_backtest(
     use_london: bool = True,
     use_silver_bullet: bool = True,
     session_end_hour: int = 16,
+    min_rr: float | None = None,
 ) -> list[dict]:
+    """min_rr: if set, skip a setup at the FVG-check bar when reward/risk
+    (target distance / stop distance, from that bar's close) falls below
+    this -- not in the original Pine source, added to test whether the
+    strategy's negative expectancy is fixable by refusing bad-R:R trades
+    rather than accepting whatever the state machine hands it."""
     range_high, range_low = completed_1h_ranges(df_5m, df_1h)
     last_swing_high, last_swing_low = one_bar_fractal_track(df_5m)
 
@@ -111,7 +117,9 @@ def run_crt_pine_backtest(
             bull_fvg = highs[i - 2] < lows[i]
             if direction == "short" and bear_fvg and rl < closes[i]:
                 stop_pts = sweep_extreme - closes[i]
-                contracts = min(max_contracts, math.floor(risk_per_trade / (stop_pts * dollars_per_point))) if stop_pts > 0 else 0
+                reward_pts = closes[i] - rl
+                rr_ok = min_rr is None or (stop_pts > 0 and reward_pts / stop_pts >= min_rr)
+                contracts = min(max_contracts, math.floor(risk_per_trade / (stop_pts * dollars_per_point))) if stop_pts > 0 and rr_ok else 0
                 if contracts >= 1 and i + 1 < n:
                     entry_price = opens[i + 1] + slip_pts  # market fill, next bar open, slipped against us
                     entry_ts = idx[i + 1]
@@ -120,7 +128,9 @@ def run_crt_pine_backtest(
                                    "range_high": rh, "range_low": rl}
             elif direction == "long" and bull_fvg and rh > closes[i]:
                 stop_pts = closes[i] - sweep_extreme
-                contracts = min(max_contracts, math.floor(risk_per_trade / (stop_pts * dollars_per_point))) if stop_pts > 0 else 0
+                reward_pts = rh - closes[i]
+                rr_ok = min_rr is None or (stop_pts > 0 and reward_pts / stop_pts >= min_rr)
+                contracts = min(max_contracts, math.floor(risk_per_trade / (stop_pts * dollars_per_point))) if stop_pts > 0 and rr_ok else 0
                 if contracts >= 1 and i + 1 < n:
                     entry_price = opens[i + 1] - slip_pts
                     entry_ts = idx[i + 1]

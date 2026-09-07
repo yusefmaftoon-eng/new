@@ -229,6 +229,23 @@ of the entry timing, not a fluke of this particular 60-day window — worth
 fixing (an R:R minimum before sizing the trade, or a target further out than
 just the near side of the range) before trusting the win rate alone.
 
+**Tested the R:R-filter fix (`--min-rr`) — it made results worse on this
+sample, not better.** Filtering to R:R ≥ 0.5 drops the trade count to 2
+MES + 2 MNQ, and all 4 surviving trades lost (combined -$635.89, worse than
+the unfiltered -$483.67); R:R ≥ 1.0 leaves only 2 MNQ trades, still both
+losers; R:R ≥ 2.0 leaves zero trades on either symbol. The reason: 7 of the
+8 *winning* trades in the unfiltered 13 had R:R below 0.5 (several near
+0.02-0.24 — tiny targets that got tapped almost immediately), so an R:R
+floor filters out most of the winners along with the losers, and this
+particular 60-day window's few high-R:R trades all happened to lose. That
+could be a real signal (low-R:R setups here have a genuinely high hit rate
+that a blunt R:R floor can't see) or it could just be n=13 being too small
+to draw any conclusion from — there's no way to tell them apart without more
+history. **This is the headline finding: at 60 days of data, this strategy's
+sample is too thin to fix by filtering; it needs a longer backtest (a paid
+intraday data vendor, or your own broker/platform's history export) before
+any rule change here — R:R filter included — can be trusted.**
+
 ## Layout
 
 ```

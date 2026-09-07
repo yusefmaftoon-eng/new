@@ -35,6 +35,8 @@ def main() -> None:
     parser.add_argument("--slippage-ticks", type=float, default=1.0)
     parser.add_argument("--no-london", action="store_true")
     parser.add_argument("--no-silver-bullet", action="store_true")
+    parser.add_argument("--min-rr", type=float, default=None,
+                         help="skip setups below this reward:risk at the FVG-check bar (not in the original Pine source)")
     args = parser.parse_args()
 
     symbols = ["MES", "MNQ"] if args.symbol == "both" else [args.symbol]
@@ -49,6 +51,7 @@ def main() -> None:
             risk_per_trade=args.risk_per_trade, max_contracts=args.max_contracts,
             commission_per_contract_per_side=args.commission, slippage_ticks=args.slippage_ticks,
             use_london=not args.no_london, use_silver_bullet=not args.no_silver_bullet,
+            min_rr=args.min_rr,
         )
         report = summarize_trades(trades)
         print(f"\n=== {sym} (crt_a_plus, ${args.risk_per_trade:.0f} risk/trade) ===")
