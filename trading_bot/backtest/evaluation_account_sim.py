@@ -163,8 +163,8 @@ def simulate_funded_account(trades: list[dict], dollars_per_point: float, max_lo
                              max_contracts: int = 20, risk_per_trade_dollars: float = 50.0,
                              fixed_contracts: int | None = None, round_trip_fee_per_contract: float = 0.0,
                              consistency_pct: float = 50.0, model_payouts: bool = False,
-                             days_to_payout: int = 2, min_payout: float = 250.0,
-                             max_payout_request: float = 1000.0, profit_split: float = 0.80,
+                             days_to_payout: int = 1, min_payout: float = 250.0,
+                             max_payout_request: float = float("inf"), profit_split: float = 0.80,
                              buffer_requirement: float = 1100.0) -> dict:
     """Funded stage: no profit target to 'pass' -- the account just runs until
     it either breaches its EOD-trailing drawdown (funded account is over, you'd
