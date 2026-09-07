@@ -145,6 +145,40 @@ need a second correlated instrument for SMT confirmation, and exit on
 whichever of a fixed stop/target is hit first — not a per-bar position
 weight applied to the next bar's return.
 
+## CRT backtest (Candle Range Theory, MES / MNQ)
+
+A second, comparable strategy: sweep the prior completed 1H candle's range
+and look for a single candle that reverses straight back through the level
+(open still beyond it, close back inside) — no second instrument, no SMT
+divergence, just the sweep-and-reclaim candle itself. Shares the same HTF
+bias, killzones, resting-liquidity targets, R:R gate, and three entry fill
+styles as IFVG (`strategies/crt_strategy.py`, `backtest/crt_engine.py`).
+
+```bash
+python -m trading_bot.run_crt_backtest --symbol both --db-path crt.sqlite
+```
+
+Because it doesn't need SMT confirmation, CRT fires far more often than
+IFVG on the same 60-day sample — 43 trades (`retrace`) vs. IFVG's 9, on 23
+distinct days vs. 9. All three entry modes land close together: ~30-33% win
+rate, net positive (~$320-$410 combined MES+MNQ, 1 contract each) on a
+low-win-rate/big-winner profile (MES alone is slightly negative; MNQ alone
+carries the total, similar to IFVG).
+
+**IFVG vs CRT are not independent signals.** 7 of IFVG's 9 trading days
+also had a CRT trade, and when both fired on the same day/symbol they
+agreed on direction 6 of those 7 times — IFVG's setups are largely a
+stricter subset of CRT's (both are liquidity-sweep-reversal concepts; IFVG
+just adds the SMT + fair-value-gap filter on top). Day-level P&L
+correlation is +0.23 — positive but far from 1, since CRT also fires on 16
+days IFVG never touches. Running both isn't like adding an uncorrelated
+asset (on the days they agree, you're doubling size on the same directional
+bet, not diversifying); it's closer to running a looser filter (CRT) and a
+stricter one (IFVG) over the same underlying edge. In this sample, combined
+max drawdown (-$461.50) came in below CRT alone (-$566.75) and combined P&L
+(+$527.50) beat either strategy alone — but at n=9-43 trades per leg, that's
+a data point, not a conclusion.
+
 ## Layout
 
 ```
@@ -157,14 +191,17 @@ trading_bot/
     crypto_strategy.py
     polymarket_strategy.py
     ifvg_strategy.py         # bias / SMT divergence / FVG detection & inversion
+    crt_strategy.py          # bias / 1H range sweep & reclaim
   backtest/
     engine.py               # time-series backtest (crypto)
     polymarket_engine.py    # event-based backtest (Polymarket)
     futures_engine.py       # trade-based backtest (IFVG, MES/MNQ)
+    crt_engine.py            # trade-based backtest (CRT, MES/MNQ)
     metrics.py               # Sharpe, CAGR, max drawdown, win rate
   run_crypto_backtest.py
   run_polymarket_backtest.py
   run_ifvg_backtest.py
+  run_crt_backtest.py
 ```
 
 ## Known limitations / next steps
