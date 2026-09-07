@@ -147,6 +147,12 @@ weight applied to the next bar's return.
 
 ## CRT backtest (Candle Range Theory, MES / MNQ)
 
+> **Note:** this section (`crt_strategy.py` / `crt_engine.py`) was a from-scratch
+> guess at "CRT" for comparison against IFVG, written before the user's actual
+> TradingView strategy was shared. It's kept as-is for that original
+> IFVG-vs-CRT comparison below, but it is **not** the user's real strategy —
+> see "CRT — the actual TradingView strategy" further down for that.
+
 A second, comparable strategy: sweep the prior completed 1H candle's range
 and look for a single candle that reverses straight back through the level
 (open still beyond it, close back inside) — no second instrument, no SMT
@@ -179,6 +185,50 @@ max drawdown (-$461.50) came in below CRT alone (-$566.75) and combined P&L
 (+$527.50) beat either strategy alone — but at n=9-43 trades per leg, that's
 a data point, not a conclusion.
 
+## CRT — the actual TradingView strategy (`crt_a_plus_mes.pine`)
+
+A faithful Python port of the user's real `strategy()` script (not the guess
+above): `strategies/crt_pine_strategy.py` + `backtest/crt_pine_engine.py`,
+run via `run_crt_pine_backtest.py`. Materially different rules:
+
+- **Killzones**: London Open (02:00–05:00 ET) and NY Silver Bullet
+  (10:00–11:00 ET) — not IFVG's AM/PM windows.
+- **Confirmation is a state machine**, not a single-candle check: sweep the
+  prior 1H candle's range → wait for an MSS (price closes back through the
+  most recent 1-bar-fractal swing point, confirming a structure shift) →
+  **exactly** 2 bars after that MSS, a one-shot check for a 3-candle FVG in
+  the reversal direction. Miss that one bar and the setup is abandoned — no
+  search window. Any unresolved setup also dies the moment the current
+  hourly range period rolls over.
+- **Stop**: the swept extreme, no buffer. **Target**: the opposite side of
+  the *same* 1H range (not resting liquidity elsewhere). No R:R minimum.
+- **Real position sizing**: `floor($200 risk / (stop_distance × $/point))`,
+  capped at 20 contracts — not flat 1-contract.
+- **Commission + slippage modeled**: $0.47/contract/side ($0.94 round trip,
+  matching Tradovate's Lifetime tier all-in cost) plus 1 tick of adverse
+  slippage on market fills (entries, and stops once triggered).
+
+```bash
+python -m trading_bot.run_crt_pine_backtest --symbol MES
+python -m trading_bot.run_crt_pine_backtest --symbol MNQ
+```
+
+Because every stage is strict (narrow killzones, one-shot FVG check, hourly
+expiry), this fires far less often than either CRT-guess or IFVG: **4 trades
+on MES, 9 on MNQ** over the same 60 days. Both are **net losing** after
+commission — MES -$218.77, MNQ -$264.90 — *despite* respectable win rates
+(50% MES, 67% MNQ). The reason isn't win rate, it's risk:reward: because
+entry only fires after sweep → MSS → a 2-bars-later FVG, price has usually
+already retraced most of the way back toward the target (the opposite side
+of the range) by the time the trade is taken, while the stop stays anchored
+at the original sweep extreme. Measured across all 13 trades taken, **median
+R:R was 0.24** (risking roughly 4x the intended reward) — only 2 of 13 trades
+had R:R above 1. A strategy needs roughly an 80% win rate to break even at
+that R:R; actual win rate was 61.5% combined. This is a structural property
+of the entry timing, not a fluke of this particular 60-day window — worth
+fixing (an R:R minimum before sizing the trade, or a target further out than
+just the near side of the range) before trusting the win rate alone.
+
 ## Layout
 
 ```
@@ -191,17 +241,20 @@ trading_bot/
     crypto_strategy.py
     polymarket_strategy.py
     ifvg_strategy.py         # bias / SMT divergence / FVG detection & inversion
-    crt_strategy.py          # bias / 1H range sweep & reclaim
+    crt_strategy.py          # bias / 1H range sweep & reclaim (from-scratch guess)
+    crt_pine_strategy.py     # port of crt_a_plus_mes.pine: MSS + FVG state machine
   backtest/
     engine.py               # time-series backtest (crypto)
     polymarket_engine.py    # event-based backtest (Polymarket)
     futures_engine.py       # trade-based backtest (IFVG, MES/MNQ)
-    crt_engine.py            # trade-based backtest (CRT, MES/MNQ)
+    crt_engine.py            # trade-based backtest (CRT guess, MES/MNQ)
+    crt_pine_engine.py       # trade-based backtest (crt_a_plus_mes.pine port)
     metrics.py               # Sharpe, CAGR, max drawdown, win rate
   run_crypto_backtest.py
   run_polymarket_backtest.py
   run_ifvg_backtest.py
   run_crt_backtest.py
+  run_crt_pine_backtest.py
 ```
 
 ## Known limitations / next steps
