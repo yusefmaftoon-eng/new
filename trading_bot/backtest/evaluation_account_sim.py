@@ -210,16 +210,23 @@ def simulate_funded_account(trades: list[dict], dollars_per_point: float, max_lo
                 days_since_last_payout += 1
 
                 if model_payouts and days_since_last_payout >= days_to_payout:
-                    profit_since_payout = equity - equity_at_last_payout
+                    # Real rule: anything sitting above the required buffer is
+                    # withdrawable (a level check against current equity, not
+                    # a flow check against profit since the last payout), gated
+                    # by a minimum request size. The full withdrawable amount
+                    # leaves the trading account; profit_split is applied only
+                    # to how much of that the trader actually pockets (the
+                    # firm's cut is not returned to equity either way).
+                    withdrawable = equity - buffer_requirement
                     cumulative_profit = equity + total_payouts
                     best_day_so_far = max(daily_pnl.values()) if daily_pnl else 0.0
                     consistent = cumulative_profit <= 0 or best_day_so_far <= consistency_pct / 100 * cumulative_profit
-                    if equity >= buffer_requirement and profit_since_payout >= min_payout and consistent:
-                        payout = min(profit_since_payout * profit_split, max_payout_request)
+                    if withdrawable >= min_payout and consistent:
+                        payout = min(withdrawable, max_payout_request)
                         equity -= payout
-                        total_payouts += payout
+                        total_payouts += payout * profit_split
                         equity_at_last_payout = equity
-                        payout_log.append({"date": str(current_date), "amount": round(payout, 2)})
+                        payout_log.append({"date": str(current_date), "amount": round(payout * profit_split, 2)})
                     days_since_last_payout = 0
             current_date = t["date"]
             day_start_equity = equity
