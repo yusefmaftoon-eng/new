@@ -7,10 +7,13 @@ indicator("A+ CRT Signal (60m range, mss_fvg entry, kill-zone)", overlay=true, m
 // found a real, if still modest-sample, edge in (MES, 60m range, real
 // Lifetime-tier Tradovate fees). Run this on a 5-minute MES chart.
 //
-// Not ported here: position sizing (use trading_bot/position_size_calc.py
-// with the stop-points value shown in the signal label -- $200/trade risk,
-// capped at 20 contracts) and the HTF Point-of-Interest requirement from
-// the original 'A+' definition (Daily Order Block / weekly liquidity pool),
+// Position sizing (entryPrice/stopPrice/targetPrice/contracts) is computed
+// below and exposed as plot() series so a webhook bridge (e.g. PickMyTrade's
+// "TradingView Indicator" SL/TP/quantity type) can read the exact per-trade
+// values live -- same $200/trade risk model as
+// trading_bot/position_size_calc.py and the strategy() version of this
+// script. Not ported here: the HTF Point-of-Interest requirement from the
+// original 'A+' definition (Daily Order Block / weekly liquidity pool),
 // which was never implemented in the Python version either -- this is a
 // partial, not full, A+ filter.
 //
@@ -25,6 +28,9 @@ htfString        = input.timeframe("60", "Range timeframe (Candle 1 / Candle 2)"
 useLondon        = input.bool(true, "Kill zone: London Open (02:00-05:00 ET)")
 useSilverBullet  = input.bool(true, "Kill zone: NY Silver Bullet (10:00-11:00 ET)")
 sessionEndHour   = input.int(16, "Force-flat hour (ET)", minval=0, maxval=23)
+riskPerTrade     = input.float(200.0, "Risk per trade ($)")
+maxContracts     = input.int(20, "Max contracts")
+dollarsPerPoint  = input.float(5.0, "$ per point (MES = 5.0)")
 
 // ---------------- HTF range: last CLOSED higher-timeframe candle (Candle 1) ----------------
 c1High     = request.security(syminfo.tickerid, htfString, high[1], lookahead=barmerge.lookahead_off)
@@ -54,6 +60,7 @@ var float  stopPrice   = na
 var float  targetPrice = na
 var int    mssBarIndex = na
 var int    c2StartTime = -1
+var int    contracts   = na
 
 // new Candle-2 period -> abandon any unresolved pending/mss_broken setup
 newPeriod = not na(htfBarTime) and htfBarTime != c2StartTime
@@ -103,6 +110,7 @@ if state == "mss_broken" and not na(mssBarIndex) and bar_index >= mssBarIndex + 
             entryPrice := close
             stopPrice := sweepExtreme
             targetPrice := candidateTarget
+            contracts := math.min(maxContracts, math.floor(riskPerTrade / (math.abs(entryPrice - stopPrice) * dollarsPerPoint)))
             state := "in_trade"
             fireSignal := true
         else
@@ -113,6 +121,7 @@ if state == "mss_broken" and not na(mssBarIndex) and bar_index >= mssBarIndex + 
             entryPrice := close
             stopPrice := sweepExtreme
             targetPrice := candidateTarget
+            contracts := math.min(maxContracts, math.floor(riskPerTrade / (math.abs(entryPrice - stopPrice) * dollarsPerPoint)))
             state := "in_trade"
             fireSignal := true
         else
@@ -130,6 +139,17 @@ if state == "in_trade"
 // ---------------- plotting & alerts ----------------
 plot(c1High, "Candle 1 High (CRH)", color=color.new(color.orange, 40), style=plot.style_stepline)
 plot(c1Low,  "Candle 1 Low (CRL)",  color=color.new(color.orange, 40), style=plot.style_stepline)
+
+// Hidden from the chart pane (display.data_window) but still a real plot()
+// series -- this is what a webhook bridge's {{plot("Title")}} / {{plot_N}}
+// alert placeholders read from. Use the exact titles below (or the plot
+// index in script order: plot_0=CRH, plot_1=CRL, plot_2=Entry Price,
+// plot_3=Stop Price, plot_4=Target Price, plot_5=Contracts) in PickMyTrade's
+// "plot variable name" fields for entry/SL/TP/quantity.
+plot(entryPrice, "Entry Price",  display=display.data_window)
+plot(stopPrice,  "Stop Price",   display=display.data_window)
+plot(targetPrice,"Target Price", display=display.data_window)
+plot(contracts,  "Contracts",    display=display.data_window)
 
 plotshape(fireSignal and dir == "short", title="Short signal", style=shape.triangledown,
           location=location.abovebar, color=color.red, size=size.small)
