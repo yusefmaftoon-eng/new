@@ -257,12 +257,15 @@ def run_backtest(bars_5m: list[dict], range_minutes: int = 60,
             continue  # ran off the end of data without resolving
 
         stop_dist = abs(entry_price - entry_stop)
+        target_dist = abs(target_price - entry_price)
         pnl_points = (entry_price - exit_price) if entry_direction == "short" else (exit_price - entry_price)
         mfe_first = mfe_bar_offset is not None and (mae_bar_offset is None or mfe_bar_offset <= mae_bar_offset)
         trades.append({
             "date": et_5m[entry_global_idx]["dt"].date(), "direction": entry_direction,
             "entry_price": entry_price, "exit_price": exit_price, "result": exit_result,
-            "stop_points": stop_dist, "mfe_points": mfe_points, "mae_points": mae_points, "mfe_first": mfe_first,
+            "stop_points": stop_dist, "target_points": target_dist,
+            "reward_risk": target_dist / stop_dist if stop_dist else 0.0,
+            "mfe_points": mfe_points, "mae_points": mae_points, "mfe_first": mfe_first,
             "pnl_points": pnl_points, "r_multiple": pnl_points / stop_dist if stop_dist else 0.0,
         })
 
