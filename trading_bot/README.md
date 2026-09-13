@@ -1,4 +1,4 @@
-# Trading bot backtesting framework (crypto + Polymarket)
+# Trading bot: crypto + Polymarket backtesting, and live Robinhood trading
 
 A strategy + backtest framework for two markets, built against **public, no-auth
 APIs**:
@@ -6,6 +6,11 @@ APIs**:
 - **Crypto**: Binance's public REST API (`api.binance.com`) for OHLCV candles.
 - **Polymarket**: the public Gamma API (`gamma-api.polymarket.com`) for resolved
   markets and the CLOB API (`clob.polymarket.com`) for price history.
+
+There's also a **live trading** module for Robinhood (`trading_bot/live/`) that
+logs into a real brokerage account and can place real market orders. Read the
+"Robinhood live trading" section below in full before using it — unlike the
+two backtests above, it moves real money.
 
 `trader-dev` (`mcp.trader.dev`) is not wired in — it needs auth this session
 didn't have credentials for, and separately, this session's network egress
@@ -84,6 +89,78 @@ Each resolved market contributes at most one trade (buy-and-hold-to-resolution,
 matching how most Polymarket positions are actually taken). Fees are modeled
 as a flat `--fee-pct` of stake — tune to match real spread/gas costs.
 
+## Robinhood live trading
+
+`trading_bot/live/robinhood_broker.py` and `run_robinhood_live.py` log into a
+**real Robinhood account** (via the unofficial `robin_stocks` client — Robinhood
+has no public API, so this uses your actual login) and can submit **real
+market orders with real money**. This is categorically different from the two
+backtests above: there is no historical simulation here, it acts on the
+present.
+
+### Safety model
+
+- **Dry-run by default.** Without `--live`, the script fetches live data,
+  computes the signal, and prints/logs what it *would* trade — it never calls
+  Robinhood's order endpoints.
+- **Two independent gates before any real order.** Even with `--live`, the
+  code refuses to submit unless the environment variable
+  `ROBINHOOD_CONFIRM_LIVE_TRADING=yes` is also set. This is deliberately an
+  env var rather than a flag, so a real order can't fire just because someone
+  reused a command line.
+- **Every order (dry-run or real) is appended to `trading_bot/logs/robinhood_orders.csv`**
+  (gitignored) for an audit trail.
+- **Credentials are read from the environment only** — `ROBINHOOD_USERNAME`,
+  `ROBINHOOD_PASSWORD`, and optionally `ROBINHOOD_TOTP_SECRET` for automatic
+  2FA codes (via `pyotp`) instead of typing a code each run. Never pass these
+  as CLI arguments or commit them; `.env` is gitignored if you use one with
+  something like `direnv` or `python-dotenv` to load it.
+- **`--max-position-value`** lets you cap the notional a buy is allowed to
+  push you to, as a second line of defense against a bad signal.
+
+### Setup
+
+```bash
+pip install -r requirements.txt
+export ROBINHOOD_USERNAME="you@example.com"
+export ROBINHOOD_PASSWORD="..."
+export ROBINHOOD_TOTP_SECRET="..."   # optional: skip typing 2FA codes each run
+```
+
+### Usage
+
+```bash
+# Dry run: shows what it would do, places nothing.
+python -m trading_bot.run_robinhood_live \
+    --symbol AAPL --strategy sma_crossover --fast 20 --slow 50 --quantity 1
+
+# Live: only after you've reviewed dry-run output and accept this trades
+# real money. Note the separate env var, set in the same command here for
+# clarity — in practice set it in your shell so it isn't in your history.
+ROBINHOOD_CONFIRM_LIVE_TRADING=yes python -m trading_bot.run_robinhood_live \
+    --symbol AAPL --strategy sma_crossover --quantity 1 \
+    --max-position-value 500 --live
+```
+
+This is a one-shot "compute signal, adjust position toward it" script, not a
+daemon — run it on a schedule (cron, etc.) if you want it to check
+periodically. It reuses the same `sma_crossover` / `rsi_mean_reversion`
+signals as the crypto backtest (see above), computed on Robinhood's own
+historical candles for the symbol.
+
+### What this doesn't do
+
+- No options, no shorting, no fractional-share sizing beyond what you pass in
+  `--quantity` — long/flat market orders on whole (or Robinhood-fractional)
+  share counts only.
+- No portfolio-level risk management beyond `--max-position-value` — it does
+  not know about your other positions or overall account risk.
+- Never backtested with this exact code path against live data before you run
+  it — the strategies were validated in the crypto backtest, not against
+  Robinhood's historicals specifically. Run in dry-run mode for a while and
+  compare its logged signals against what you'd expect before trusting it
+  with `--live`.
+
 ## Layout
 
 ```
@@ -98,8 +175,11 @@ trading_bot/
     engine.py               # time-series backtest (crypto)
     polymarket_engine.py    # event-based backtest (Polymarket)
     metrics.py               # Sharpe, CAGR, max drawdown, win rate
+  live/
+    robinhood_broker.py     # login, historicals, positions, order placement
   run_crypto_backtest.py
   run_polymarket_backtest.py
+  run_robinhood_live.py     # LIVE trading -- real orders, real money (see above)
 ```
 
 ## Known limitations / next steps
