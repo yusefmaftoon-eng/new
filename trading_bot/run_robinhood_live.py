@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 """Run a strategy against a LIVE Robinhood account.
 
+LEGACY / FALLBACK PATH: Robinhood now offers an official agentic trading
+integration (an OAuth-connected MCP server, isolated to its own dedicated
+account) which is the recommended way to do this -- see the README's
+"Robinhood live trading" section, and `trading_bot/live/mcp_signal_helper.py`
+for using this repo's strategies with it. This script instead logs into your
+account directly with your password via the unofficial `robin_stocks`
+client, which means your credentials live in your environment and there's no
+account isolation from your main portfolio. Keep using it only if you can't
+use the official MCP path for some reason.
+
 SAFETY: dry-run by default. No order is ever sent to Robinhood unless you
 pass --live *and* have separately set ROBINHOOD_CONFIRM_LIVE_TRADING=yes in
 your shell. Credentials come from ROBINHOOD_USERNAME / ROBINHOOD_PASSWORD

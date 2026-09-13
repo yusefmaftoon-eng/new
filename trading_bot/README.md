@@ -7,10 +7,12 @@ APIs**:
 - **Polymarket**: the public Gamma API (`gamma-api.polymarket.com`) for resolved
   markets and the CLOB API (`clob.polymarket.com`) for price history.
 
-There's also a **live trading** module for Robinhood (`trading_bot/live/`) that
-logs into a real brokerage account and can place real market orders. Read the
-"Robinhood live trading" section below in full before using it — unlike the
-two backtests above, it moves real money.
+There's also **live trading** support for Robinhood (`trading_bot/live/`),
+preferably through Robinhood's own official agentic-trading MCP integration
+(with `mcp_signal_helper.py` bridging in this repo's strategies), or via a
+legacy direct-login fallback script. Read the "Robinhood live trading"
+section below in full before using either — unlike the two backtests above,
+this moves real money.
 
 `trader-dev` (`mcp.trader.dev`) is not wired in — it needs auth this session
 didn't have credentials for, and separately, this session's network egress
@@ -91,14 +93,62 @@ as a flat `--fee-pct` of stake — tune to match real spread/gas costs.
 
 ## Robinhood live trading
 
-`trading_bot/live/robinhood_broker.py` and `run_robinhood_live.py` log into a
-**real Robinhood account** (via the unofficial `robin_stocks` client — Robinhood
-has no public API, so this uses your actual login) and can submit **real
-market orders with real money**. This is categorically different from the two
-backtests above: there is no historical simulation here, it acts on the
-present.
+This acts on the present with real money, not a historical simulation like
+the two backtests above. There are two ways to do it — prefer the first.
 
-### Safety model
+### Recommended: Robinhood's official Agentic Trading (MCP)
+
+As of May 2026, Robinhood runs an official, OAuth-connected MCP server for
+AI-agent trading at `https://agent.robinhood.com/mcp/trading`, supported by
+Claude Code, Claude Desktop, ChatGPT, Cursor, Grok, and other MCP-capable
+clients. This is the better path: no passwords or TOTP secrets stored
+anywhere, and trades are confined to a **dedicated Agentic account** isolated
+from your main portfolio (one of up to 10 individual accounts Robinhood lets
+you hold).
+
+Setup, from your own desktop (this step needs your physical device and
+Robinhood mobile app for verification — it can't be done for you from a repo
+or a cloud session):
+
+```bash
+claude mcp add robinhood-trading --transport http https://agent.robinhood.com/mcp/trading
+```
+
+Then finish the on-screen OAuth/onboarding flow, which also opens the
+Agentic account if you don't already have one. You'll need an existing
+primary Robinhood account in good standing first.
+
+Once connected, a Claude session with that MCP loaded can query your
+Agentic account's positions/balances/history directly through Robinhood's
+own tools, and place orders through them too — those calls go through
+Robinhood's supported, reviewed path (trade previews / confirmation by
+default; an explicit "autonomous mode" removes that if you turn it on).
+
+Use `trading_bot/live/mcp_signal_helper.py` to bring this repo's strategies
+into that flow without giving up any of Robinhood's safety controls: feed it
+OHLCV data (from the MCP's own market-data tool, or this repo's fetchers)
+plus your current/target position, and `decide()` returns a plain
+`{signal, side, quantity, rationale}` dict — the agent then decides whether
+to hand that to Robinhood's own order-placement tool. This repo never touches
+your Robinhood credentials or places the order itself in this path.
+
+Known gaps in Robinhood's public documentation as of writing: no documented
+hard spend cap or per-order limit beyond your account balance, and rate
+limits/session lifetime/token revocation aren't specified — read Robinhood's
+own docs at `robinhood.com/us/en/support/agentic-trading` before relying on
+autonomous mode for anything beyond a small account balance.
+
+### Legacy / fallback: direct `robin_stocks` script
+
+`trading_bot/live/robinhood_broker.py` and `run_robinhood_live.py` log into a
+**real Robinhood account** directly (via the unofficial `robin_stocks`
+client, using your actual username/password — Robinhood has no public API
+for this) and can submit **real market orders with real money**, with no
+account isolation from your main portfolio. Prefer the official MCP path
+above; use this only if connecting an MCP-capable agent isn't an option for
+your setup.
+
+#### Safety model
 
 - **Dry-run by default.** Without `--live`, the script fetches live data,
   computes the signal, and prints/logs what it *would* trade — it never calls
@@ -118,7 +168,7 @@ present.
 - **`--max-position-value`** lets you cap the notional a buy is allowed to
   push you to, as a second line of defense against a bad signal.
 
-### Setup
+#### Setup
 
 ```bash
 pip install -r requirements.txt
@@ -127,7 +177,7 @@ export ROBINHOOD_PASSWORD="..."
 export ROBINHOOD_TOTP_SECRET="..."   # optional: skip typing 2FA codes each run
 ```
 
-### Usage
+#### Usage
 
 ```bash
 # Dry run: shows what it would do, places nothing.
@@ -148,7 +198,7 @@ periodically. It reuses the same `sma_crossover` / `rsi_mean_reversion`
 signals as the crypto backtest (see above), computed on Robinhood's own
 historical candles for the symbol.
 
-### What this doesn't do
+#### What this doesn't do
 
 - No options, no shorting, no fractional-share sizing beyond what you pass in
   `--quantity` — long/flat market orders on whole (or Robinhood-fractional)
@@ -176,10 +226,11 @@ trading_bot/
     polymarket_engine.py    # event-based backtest (Polymarket)
     metrics.py               # Sharpe, CAGR, max drawdown, win rate
   live/
-    robinhood_broker.py     # login, historicals, positions, order placement
+    mcp_signal_helper.py    # turns OHLCV data into a decision for the official MCP path
+    robinhood_broker.py     # legacy fallback: login, historicals, positions, order placement
   run_crypto_backtest.py
   run_polymarket_backtest.py
-  run_robinhood_live.py     # LIVE trading -- real orders, real money (see above)
+  run_robinhood_live.py     # legacy fallback -- LIVE trading, real orders, real money
 ```
 
 ## Known limitations / next steps
@@ -191,7 +242,13 @@ trading_bot/
 - No walk-forward or out-of-sample split is enforced — if you tune
   `--fast`/`--slow`/`--entry-threshold` against the same window you evaluate
   on, you will overfit. Hold out a test period.
-- No live execution/order-placement is implemented — this is backtesting only.
-  Wiring up real trading (with real exchange API keys) is a meaningfully
-  bigger, riskier step; happy to help with that separately once you've
-  reviewed real backtest results.
+- Live execution exists for Robinhood only (official MCP path recommended,
+  direct-login script as fallback — see "Robinhood live trading" above).
+  Crypto and Polymarket are backtesting only; wiring up real order placement
+  for either would need real exchange/wallet credentials, a meaningfully
+  bigger and riskier step than what's here.
+- Robinhood's official MCP path has undocumented rate limits, session
+  lifetime, and token-revocation behavior, and no documented hard spend cap
+  beyond your account balance — read Robinhood's own docs before turning on
+  its "autonomous mode" (no per-trade confirmation) for anything beyond a
+  small account balance.

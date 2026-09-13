@@ -1,4 +1,12 @@
-"""Live Robinhood brokerage client (real account, real money).
+"""Live Robinhood brokerage client (real account, real money) -- legacy/fallback path.
+
+Robinhood now offers an official agentic trading integration (OAuth-connected
+MCP server, isolated to its own dedicated account) which is the recommended
+way to trade live -- see the README's "Robinhood live trading" section and
+`mcp_signal_helper.py`. This module instead uses the unofficial `robin_stocks`
+client with your actual username/password, with no account isolation from
+your main portfolio. Prefer the official MCP path; keep this only as a
+fallback for environments where connecting an MCP-capable agent isn't an option.
 
 This is NOT a backtest sandbox: `place_order` can submit a real market order
 against a real Robinhood account. Two independent things must both be true
