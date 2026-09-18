@@ -91,17 +91,20 @@ onTick = (length, _moment, _, ta, inputs) => {
   // Pine Script port: this deliberately isn't a plain crossover check.
   const prevDev = devHistory[devHistory.length - 2];
 
+  // Distinct names in each branch, not reused "stop"/"target" -- FXR Script's parser
+  // doesn't honor if/else-if block scoping the way real JS does (it rejected a `const`
+  // redeclared across the two branches even though they're separate blocks in real JS).
   if (prevDev <= band && dev > band) {
-    const stop = vwapNow + stopBand;
-    if (stop > c && (stop - c) >= minStopUnits) {
+    const shortStop = vwapNow + stopBand;
+    if (shortStop > c && (shortStop - c) >= minStopUnits) {
       arrowDown(time(0), h, { arrowColor: color.red, color: color.white, fontsize: 11, bold: true, showLabel: true },
-        `SHORT stop ${stop.toFixed(2)} target ${vwapNow.toFixed(2)}`);
+        `SHORT stop ${shortStop.toFixed(2)} target ${vwapNow.toFixed(2)}`);
     }
   } else if (prevDev >= -band && dev < -band) {
-    const stop = vwapNow - stopBand;
-    if (stop < c && (c - stop) >= minStopUnits) {
+    const longStop = vwapNow - stopBand;
+    if (longStop < c && (c - longStop) >= minStopUnits) {
       arrowUp(time(0), l, { arrowColor: color.green, color: color.white, fontsize: 11, bold: true, showLabel: true },
-        `LONG stop ${stop.toFixed(2)} target ${vwapNow.toFixed(2)}`);
+        `LONG stop ${longStop.toFixed(2)} target ${vwapNow.toFixed(2)}`);
     }
   }
 };
