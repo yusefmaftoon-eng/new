@@ -294,6 +294,69 @@ contract flat (no risk-based sizing), and still one ~70-day window — same
 class of caveat as everything else in this file, just with a larger sample
 than the ICT strategies get from 60 days of 5-minute data.
 
+## Bug fix: degenerate VWAP stops inflated the earlier numbers above
+
+`vwap_reversion_strategy.py`'s stop is computed from the signal bar's
+rolling std; entry fills at the *next* bar's open. When that std was
+degenerately small, the stop could end up on the wrong side of the actual
+fill (found via the prop-firm sim below flagging a "long" trade with its
+stop *above* entry) or merely a fraction of a tick away -- either way,
+risk-based position sizing (which divides a fixed dollar risk by the stop
+distance) then blows up toward the max contract cap on a nearly-meaningless
+stop. `generic_engine.simulate_trades` now takes `min_stop_distance` and
+rejects any setup whose stop ends up wrong-side or below that distance from
+the actual fill; `run_new_strategies_backtest.py` and
+`run_prop_firm_sim.py` pass 4 ticks per instrument.
+
+Corrected VWAP totals (the "Three more strategies" section above used the
+buggy numbers): MES +$165.83 (was +$412.92), MNQ +$2,609.57 (was
++$3,550.39), MGC +$1,534.68 (was +$2,454.05) -- about 33% lower combined,
+but still positive on all three symbols individually, so the core finding
+holds.
+
+## Prop firm account simulation (Tradeify Select $25K, VWAP reversion)
+
+`backtest/prop_firm_sim.py` + `run_prop_firm_sim.py` turn the per-trade
+backtest output into a day-by-day account simulation against a specific
+firm's rules (a plain dataclass -- swap the numbers for another firm/size):
+$1,500 profit target, 40% consistency (eval only), $1,000 EOD trailing
+drawdown enforced in real time (not just checked at day-end), floor locks
+permanently once balance clears start+drawdown+$100, contracts 10 micro
+(eval) -> 20 micro (funded), payouts up to $600/day once past the lock
+threshold. `generic_engine.simulate_trades` now also tracks `mae_pts` --
+the worst unrealized excursion reached during each trade's life, not just
+its final P&L -- so the real-time floor check isn't limited to final
+realized outcomes.
+
+```bash
+python -m trading_bot.run_prop_firm_sim --risk-per-trade 150
+```
+
+Position sizing (`--risk-per-trade`, capped by the phase's contract limit)
+is *our* choice, not a firm rule, and it turns out to be the whole game:
+running VWAP reversion across MES+MNQ+MGC simultaneously against this
+account, **every risk level from $50 to $300 per trade busts the account**
+within the ~70-day sample -- typically after comfortably passing the $1,500
+eval target first, then blowing through the locked drawdown floor by a
+matter of dollars on one real-time excursion. Only $25/trade (2.5% of the
+$1,000 drawdown budget) survived the full window: 335 trades, still funded,
+no breach. The standalone per-symbol backtests above look good precisely
+because they carry no drawdown constraint at all -- against a real prop
+account, the same strategy's edge is easily wiped out by position sizing
+alone.
+
+Two things this simulator does and does not do, spelled out in
+`prop_firm_sim.py`'s docstring: contract caps ARE enforced account-wide via
+proper event-driven open/close tracking across all three symbols (a trade
+that would push the total over the limit is rejected, not silently
+allowed). The real-time drawdown check is NOT a full bar-by-bar aggregate
+reconstruction -- it fires when a new position opens, checking that trade's
+own worst excursion against the account balance at that instant, so two
+positions on different symbols hitting their own worst point simultaneously
+with no new trade opening right then could in principle breach the floor
+without being caught. Worth tightening before treating a "survives" result
+as a guarantee.
+
 ## Layout
 
 ```
@@ -318,6 +381,7 @@ trading_bot/
     crt_engine.py            # trade-based backtest (CRT guess, MES/MNQ)
     crt_pine_engine.py       # trade-based backtest (crt_a_plus_mes.pine port)
     generic_engine.py        # shared engine: vwap/turtle_soup/order_block
+    prop_firm_sim.py          # account simulation against firm rules
     metrics.py               # Sharpe, CAGR, max drawdown, win rate
   run_crypto_backtest.py
   run_polymarket_backtest.py
@@ -325,6 +389,7 @@ trading_bot/
   run_crt_backtest.py
   run_crt_pine_backtest.py
   run_new_strategies_backtest.py
+  run_prop_firm_sim.py
 ```
 
 ## Known limitations / next steps

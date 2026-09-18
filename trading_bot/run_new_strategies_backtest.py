@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from trading_bot.data.futures_fetcher import fetch_micro_future, CONTRACT_MULTIPLIER
+from trading_bot.data.futures_fetcher import fetch_micro_future, CONTRACT_MULTIPLIER, TICK_SIZE
 from trading_bot.backtest.generic_engine import simulate_trades, summarize_trades
 from trading_bot.strategies import vwap_reversion_strategy, turtle_soup_strategy, order_block_strategy
 
@@ -55,7 +55,8 @@ def main() -> None:
         combined = []
         for sym in symbols:
             setups = STRATEGIES[strat_name](bars[sym])
-            trades = simulate_trades(sym, bars[sym], setups, CONTRACT_MULTIPLIER[sym])
+            trades = simulate_trades(sym, bars[sym], setups, CONTRACT_MULTIPLIER[sym],
+                                      min_stop_distance=4 * TICK_SIZE[sym])
             combined += trades
             report = summarize_trades(trades)
             print(f"\n--- {sym} ---")
