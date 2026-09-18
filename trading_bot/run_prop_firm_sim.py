@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 
+import pandas as pd
+
 from trading_bot.data.futures_fetcher import fetch_micro_future, CONTRACT_MULTIPLIER, TICK_SIZE
 from trading_bot.backtest.generic_engine import simulate_trades
 from trading_bot.strategies import vwap_reversion_strategy
@@ -34,12 +36,19 @@ def main() -> None:
                          help="restart a fresh (paid) evaluation immediately after every bust, continuing through "
                               "the same trade stream, and report total payouts vs. total eval fees")
     parser.add_argument("--eval-cost", type=float, default=65.0, help="$ cost per evaluation attempt (--repeat only)")
+    parser.add_argument("--start-date", default=None, help="YYYY-MM-DD, inclusive -- slice the fetched window "
+                                                             "for out-of-sample / sub-period checks")
+    parser.add_argument("--end-date", default=None, help="YYYY-MM-DD, inclusive")
     args = parser.parse_args()
 
     trades_by_symbol = {}
     dpp = {}
     for sym in SYMBOLS:
         df = fetch_micro_future(sym, "5m", args.range)
+        if args.start_date:
+            df = df[df.index.date >= pd.Timestamp(args.start_date).date()]
+        if args.end_date:
+            df = df[df.index.date <= pd.Timestamp(args.end_date).date()]
         setups = vwap_reversion_strategy.detect_setups(df)
         trades = simulate_trades(sym, df, setups, CONTRACT_MULTIPLIER[sym], min_stop_distance=4 * TICK_SIZE[sym])
         trades_by_symbol[sym] = trades
