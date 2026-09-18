@@ -12,9 +12,9 @@ import pandas as pd
 CHART_URL = "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
-CONTRACT_MULTIPLIER = {"MES": 5.0, "MNQ": 2.0}   # USD per index point
-TICK_SIZE = {"MES": 0.25, "MNQ": 0.25}
-YAHOO_SYMBOL = {"MES": "MES=F", "MNQ": "MNQ=F"}
+CONTRACT_MULTIPLIER = {"MES": 5.0, "MNQ": 2.0, "MGC": 10.0}   # USD per point
+TICK_SIZE = {"MES": 0.25, "MNQ": 0.25, "MGC": 0.10}
+YAHOO_SYMBOL = {"MES": "MES=F", "MNQ": "MNQ=F", "MGC": "MGC=F"}
 
 
 def fetch_yahoo_intraday(symbol: str, interval: str = "5m", range_: str = "60d") -> pd.DataFrame:

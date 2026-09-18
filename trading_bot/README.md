@@ -246,6 +246,54 @@ sample is too thin to fix by filtering; it needs a longer backtest (a paid
 intraday data vendor, or your own broker/platform's history export) before
 any rule change here — R:R filter included — can be trusted.**
 
+## Three more strategies (MES / MGC, explicitly not ORB)
+
+Three independent, non-ICT-family strategies for contrast, each in its own
+`strategies/*.py` module sharing one fill/exit engine
+(`backtest/generic_engine.py`: next-bar-open fill, first stop/target touch
+wins, fixed-hour flatten):
+
+- **`vwap_reversion_strategy.py`** — session VWAP (resets daily) with a
+  rolling-std band; fade a close outside 2 std back toward VWAP, stop at 3
+  std, RTH only (09:30–16:00 ET). The one genuinely standard, non-ICT
+  strategy in this package.
+- **`turtle_soup_strategy.py`** — simplest liquidity-sweep fade: an engulfing
+  candle (open beyond, close back inside) through the *prior day's* high or
+  low, target the prior day's midpoint. No bias, no killzone, no MSS/FVG.
+- **`order_block_strategy.py`** — last opposite-color candle before a
+  displacement move (body ≥ 1.5× ATR) becomes a support/resistance zone;
+  retest it, target the impulse leg's extreme. No bias, no killzone.
+
+```bash
+python -m trading_bot.run_new_strategies_backtest --symbol both
+```
+
+Run on ~2.5 months of real 5-minute MES and MGC (Micro Gold, $10/point,
+newly added to `futures_fetcher.py`) bars — no commission or slippage
+modeled here (unlike `crt_pine_engine.py`), 1 contract flat:
+
+| Strategy | Trades | Win rate | Profit factor | Total P&L |
+|---|---|---|---|---|
+| VWAP reversion | 243 | 37.9% | 1.47 | **+$2,823.94** |
+| Turtle Soup | 226 | 31.9% | 0.93 | -$506.49 |
+| Order block | 235 | 41.3% | 0.74 | -$1,164.51 |
+
+**VWAP reversion is the standout** — net positive on both symbols
+individually (MES +$369.89, MGC +$2,454.05), with the largest sample of the
+three by a comfortable margin. Its edge is the classic mean-reversion
+shape: a sub-40% win rate more than compensated by asymmetric R:R (median
+~3.2 — target is a 2-std round trip back to VWAP, stop is only 1 std past
+entry). Turtle Soup and order-block retest are roughly breakeven-to-negative
+and split by symbol (Turtle Soup: MES positive, MGC negative; order block:
+negative on both, worst on MES).
+
+Caveats before reading too much into the totals: no commission/slippage
+here (VWAP's edge would survive it easily at 243 trades and $0.94/round
+trip; order block's already-negative number would only get worse), 1
+contract flat (no risk-based sizing), and still one ~70-day window — same
+class of caveat as everything else in this file, just with a larger sample
+than the ICT strategies get from 60 days of 5-minute data.
+
 ## Layout
 
 ```
@@ -253,25 +301,30 @@ trading_bot/
   data/
     crypto_fetcher.py       # Binance klines
     polymarket_fetcher.py   # Gamma resolved markets + CLOB price history
-    futures_fetcher.py      # Yahoo Finance intraday bars (MES/MNQ)
+    futures_fetcher.py      # Yahoo Finance intraday bars (MES/MNQ/MGC)
   strategies/
     crypto_strategy.py
     polymarket_strategy.py
     ifvg_strategy.py         # bias / SMT divergence / FVG detection & inversion
     crt_strategy.py          # bias / 1H range sweep & reclaim (from-scratch guess)
     crt_pine_strategy.py     # port of crt_a_plus_mes.pine: MSS + FVG state machine
+    vwap_reversion_strategy.py  # session VWAP + std band fade
+    turtle_soup_strategy.py     # prior-day high/low false-breakout fade
+    order_block_strategy.py     # displacement candle + retest
   backtest/
     engine.py               # time-series backtest (crypto)
     polymarket_engine.py    # event-based backtest (Polymarket)
     futures_engine.py       # trade-based backtest (IFVG, MES/MNQ)
     crt_engine.py            # trade-based backtest (CRT guess, MES/MNQ)
     crt_pine_engine.py       # trade-based backtest (crt_a_plus_mes.pine port)
+    generic_engine.py        # shared engine: vwap/turtle_soup/order_block
     metrics.py               # Sharpe, CAGR, max drawdown, win rate
   run_crypto_backtest.py
   run_polymarket_backtest.py
   run_ifvg_backtest.py
   run_crt_backtest.py
   run_crt_pine_backtest.py
+  run_new_strategies_backtest.py
 ```
 
 ## Known limitations / next steps
