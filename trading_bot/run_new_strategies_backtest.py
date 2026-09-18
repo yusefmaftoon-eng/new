@@ -30,12 +30,18 @@ STRATEGIES = {
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--symbol", default="both", choices=["MES", "MGC", "both"])
+    parser.add_argument("--symbol", default="both",
+                         help="'both' (MES+MGC), 'all' (MES+MGC+MNQ), or a comma-separated list e.g. MNQ or MES,MNQ")
     parser.add_argument("--strategy", default="all", choices=["all", *STRATEGIES])
     parser.add_argument("--range", default="60d")
     args = parser.parse_args()
 
-    symbols = ["MES", "MGC"] if args.symbol == "both" else [args.symbol]
+    if args.symbol == "both":
+        symbols = ["MES", "MGC"]
+    elif args.symbol == "all":
+        symbols = ["MES", "MGC", "MNQ"]
+    else:
+        symbols = args.symbol.split(",")
     strategies = list(STRATEGIES) if args.strategy == "all" else [args.strategy]
 
     bars = {}
