@@ -370,6 +370,26 @@ with no new trade opening right then could in principle breach the floor
 without being caught. Worth tightening before treating a "survives" result
 as a guarantee.
 
+## Position size calculator (live use, not a backtest)
+
+`position_size_calc.py` is meant to be run in real time while watching a
+signal fire -- give it entry/stop, it tells you contracts. Same formula as
+`prop_firm_sim.py`'s `contracts_for_trade`, exposed standalone so sizing a
+trade doesn't require running a backtest:
+
+```bash
+python -m trading_bot.position_size_calc --symbol MNQ --entry 29500 --stop 29520
+python -m trading_bot.position_size_calc --symbol MES --entry 7650 --stop 7644.5 --open-contracts 8
+```
+
+Defaults to $90 risk/trade and the 10-contract eval cap (`--funded` for the
+20-contract cap); `--open-contracts` accounts for the aggregate cap across
+MES+MNQ+MGC when you already have a position open on another symbol. Rejects
+a setup outright (0 contracts, explains why) if the stop is on the wrong
+side of entry or under 4 ticks away -- the same guard added to
+`generic_engine.simulate_trades` after the degenerate-VWAP-stop bug it
+caught there.
+
 ## Layout
 
 ```
@@ -403,6 +423,7 @@ trading_bot/
   run_crt_pine_backtest.py
   run_new_strategies_backtest.py
   run_prop_firm_sim.py
+  position_size_calc.py     # live-use sizing tool, not a backtest
 ```
 
 ## Known limitations / next steps
