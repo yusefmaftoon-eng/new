@@ -1,0 +1,125 @@
+//@version=5
+strategy("VWAP Mean-Reversion ($90 risk, MES/MNQ/MGC)", overlay=true,
+     initial_capital=25000, currency=currency.USD,
+     commission_type=strategy.commission.cash_per_contract, commission_value=0.47,
+     slippage=1, pyramiding=0, calc_on_every_tick=false,
+     max_lines_count=50, max_labels_count=50)
+
+// Port of trading_bot/strategies/vwap_reversion_strategy.py +
+// backtest/generic_engine.py's fill/exit mechanics, converted to a
+// strategy() so the Strategy Tester shows real stats. Apply this SAME
+// script to three separate chart windows -- one each for MES, MNQ, MGC --
+// a single Pine strategy only ever trades the symbol of the chart it's on.
+//
+// Rules: session VWAP (resets each day) + a rolling-stdev band. A bar
+// whose close crosses outside bandMult*std, having been inside that same
+// band the bar before, fades back toward VWAP. Stop = VWAP +/- stopMult*std
+// (must end up beyond the entry side and at least minStopTicks away -- see
+// the validity guard below, the same one added to the Python engine after
+// it found a degenerate-std bug there: a near-zero std produced a stop a
+// fraction of a tick from entry, sometimes on the WRONG side, which blew
+// risk-based sizing up to the max contract cap on a meaningless stop).
+// RTH only (09:30-16:00 ET) -- unlike the other scripts in this set, VWAP
+// reversion is normally traded RTH-hours only. Flat by session end.
+//
+// Position sizing: $90 risk/trade (our backtested choice from
+// trading_bot/run_prop_firm_sim.py, not a firm rule), same formula as
+// trading_bot/position_size_calc.py. The 10/20-contract cap is
+// ACCOUNT-WIDE across all three symbols; this script has no way to see
+// what's open on the other two chart windows, so otherOpenContracts below
+// is a manual input -- keep it updated yourself, or use
+// position_size_calc.py directly before each entry if you'd rather not
+// rely on remembering.
+//
+// Approximation Python didn't need: the backtest can check the NEXT bar's
+// actual open before deciding a stop is valid, because it's replaying
+// history. Live, a signal has to decide *now*, before that next bar
+// exists -- so the stop-validity and sizing checks below use the signal
+// bar's own close as a stand-in for the fill price. On a normal 5m bar
+// this is close enough; a large gap between this close and the next
+// bar's open could still produce a worse fill than assumed.
+//
+// NOT ported here (lives only in Python): the account-level simulation --
+// EOD trailing drawdown, eval-vs-funded phase, the 40% consistency rule,
+// payouts. That's trading_bot/backtest/prop_firm_sim.py and can't be
+// expressed inside a single-symbol Pine strategy. maxContracts below is
+// your manual stand-in for "am I still in eval (10) or funded (20)."
+
+// ---------------- Inputs ----------------
+riskPerTrade        = input.float(90.0, "Risk per trade ($)")
+maxContracts         = input.int(10, "Max contracts (eval=10, funded=20)", minval=1)
+otherOpenContracts   = input.int(0, "Contracts already open on OTHER symbols right now", minval=0)
+bandMult             = input.float(2.0, "Entry band (std multiples)")
+stopMult             = input.float(3.0, "Stop band (std multiples, must be > entry band)", minval=0.01)
+stdWindow            = input.int(60, "Rolling std window (bars)", minval=5)
+sessionEndHour       = input.int(16, "Force-flat hour (ET)", minval=0, maxval=23)
+minStopTicks         = input.float(4.0, "Minimum stop distance (ticks)", minval=0.1)
+
+// ---------------- Session VWAP + rolling band ----------------
+// Reset explicitly on the NY calendar day (not time("D"), which resets on
+// the CHART's display timezone unless that happens to be set to New York) --
+// matches the Python source, which groups by date after tz-converting to
+// America/New_York.
+newDay = ta.change(dayofmonth(time, "America/New_York")) != 0
+var float sumPV = 0.0
+var float sumV  = 0.0
+typicalPrice = (high + low + close) / 3.0
+sumPV := newDay ? typicalPrice * volume : sumPV + typicalPrice * volume
+sumV  := newDay ? volume : sumV + volume
+vwap_ = sumV != 0 ? sumPV / sumV : close
+
+dev = close - vwap_
+stdDev = ta.stdev(dev, stdWindow)
+
+// ---------------- ET hour, RTH check ----------------
+etHour = hour(time, "America/New_York") + minute(time, "America/New_York") / 60.0
+inRTH = etHour >= 9.5 and etHour < 16
+
+// ---------------- entry trigger: band cross ----------------
+// Deliberately NOT ta.crossover()/ta.crossunder(): the Python source compares
+// the PRIOR bar's dev against the CURRENT bar's band (band_mult * this bar's
+// std), not each bar's own contemporaneous band -- ta.crossover would use
+// band[1] for the prior-bar side of the comparison instead. Written out
+// explicitly here to match exactly.
+band = bandMult * stdDev
+prevDev = dev[1]
+haveStd = not na(stdDev)
+
+shortSignal = inRTH and haveStd and prevDev <= band and dev > band
+longSignal  = inRTH and haveStd and prevDev >= -band and dev < -band
+
+// ---------------- stop/target + validity + sizing (approximated at the signal bar -- see note above) ----------------
+stopBand = stopMult * stdDev
+longStop  = vwap_ - stopBand
+shortStop = vwap_ + stopBand
+
+longStopPts  = close - longStop
+shortStopPts = shortStop - close
+longStopTicks  = longStopPts / syminfo.mintick
+shortStopTicks = shortStopPts / syminfo.mintick
+
+longValid  = longSignal and longStopPts > 0 and longStopTicks >= minStopTicks
+shortValid = shortSignal and shortStopPts > 0 and shortStopTicks >= minStopTicks
+
+availableContracts = math.max(0, maxContracts - otherOpenContracts)
+longContracts  = longValid ? math.max(1, math.min(math.floor(riskPerTrade / (longStopPts * syminfo.pointvalue)), availableContracts)) : 0
+shortContracts = shortValid ? math.max(1, math.min(math.floor(riskPerTrade / (shortStopPts * syminfo.pointvalue)), availableContracts)) : 0
+
+flatNow = strategy.position_size == 0   // one position at a time, matching the Python engine's one_at_a_time default
+
+if flatNow and longValid and availableContracts >= 1
+    strategy.entry("Long", strategy.long, qty=longContracts)
+    strategy.exit("Exit Long", "Long", stop=longStop, limit=vwap_)
+
+if flatNow and shortValid and availableContracts >= 1
+    strategy.entry("Short", strategy.short, qty=shortContracts)
+    strategy.exit("Exit Short", "Short", stop=shortStop, limit=vwap_)
+
+// force-flat at session end regardless of stop/target
+if strategy.position_size != 0 and etHour >= sessionEndHour
+    strategy.close_all(comment="session end")
+
+// ---------------- plotting ----------------
+plot(vwap_, "Session VWAP", color=color.new(color.yellow, 0), linewidth=2)
+plot(vwap_ + band, "Entry band (short side)", color=color.new(color.red, 50), style=plot.style_circles)
+plot(vwap_ - band, "Entry band (long side)", color=color.new(color.green, 50), style=plot.style_circles)
