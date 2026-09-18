@@ -330,20 +330,33 @@ realized outcomes.
 
 ```bash
 python -m trading_bot.run_prop_firm_sim --risk-per-trade 150
+python -m trading_bot.run_prop_firm_sim --risk-per-trade 100 --repeat --eval-cost 65
 ```
 
 Position sizing (`--risk-per-trade`, capped by the phase's contract limit)
-is *our* choice, not a firm rule, and it turns out to be the whole game:
-running VWAP reversion across MES+MNQ+MGC simultaneously against this
-account, **every risk level from $50 to $300 per trade busts the account**
-within the ~70-day sample -- typically after comfortably passing the $1,500
-eval target first, then blowing through the locked drawdown floor by a
-matter of dollars on one real-time excursion. Only $25/trade (2.5% of the
-$1,000 drawdown budget) survived the full window: 335 trades, still funded,
-no breach. The standalone per-symbol backtests above look good precisely
-because they carry no drawdown constraint at all -- against a real prop
-account, the same strategy's edge is easily wiped out by position sizing
-alone.
+is *our* choice, not a firm rule. Running VWAP reversion across
+MES+MNQ+MGC simultaneously against this account, **every risk level from
+$50 to $300 per trade busts a single account** within the ~70-day sample --
+typically after comfortably passing the $1,500 eval target first, then
+blowing through the locked drawdown floor by a matter of dollars on one
+real-time excursion. Only $25/trade (2.5% of the $1,000 drawdown budget)
+survived the full window as a single account: 335 trades, still funded, no
+breach.
+
+**But busting isn't a failure state in the prop firm model -- it's an
+accepted cost.** What actually matters is total payouts collected across
+however many paid evaluation attempts it takes, minus those fees --
+`--repeat` simulates exactly that: restart a fresh $65 evaluation
+immediately after every bust, continuing forward through the same trade
+stream. Under that lens, net profit is **positive at every level from $25
+up through $150/trade**, clustering around **$4,650-$6,608 net over ~70
+days** for $60-125/trade (1-5 attempts to get there). $200/trade is the
+outlier -- too aggressive to reliably even pass an evaluation before
+busting (1 of 13 attempts passed), net **-$845**. $300/trade recovers to
+barely positive on sheer volume of attempts (19 attempts, net +$565). This
+is one 70-day window and the landscape is noisy near the bust boundary
+(small perturbations in sizing swing which specific trade triggers the
+next bust) -- a first-pass economics check, not a precise optimum.
 
 Two things this simulator does and does not do, spelled out in
 `prop_firm_sim.py`'s docstring: contract caps ARE enforced account-wide via
