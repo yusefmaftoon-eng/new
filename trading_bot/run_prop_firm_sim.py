@@ -11,7 +11,7 @@ the exact mechanics and its documented simplifications.
 
 Examples:
     python -m trading_bot.run_prop_firm_sim --risk-per-trade 150
-    python -m trading_bot.run_prop_firm_sim --risk-per-trade 150 --repeat --eval-cost 65
+    python -m trading_bot.run_prop_firm_sim --risk-per-trade 150 --repeat --eval-cost 85
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def main() -> None:
     parser.add_argument("--repeat", action="store_true",
                          help="restart a fresh (paid) evaluation immediately after every bust, continuing through "
                               "the same trade stream, and report total payouts vs. total eval fees")
-    parser.add_argument("--eval-cost", type=float, default=65.0, help="$ cost per evaluation attempt (--repeat only)")
+    parser.add_argument("--eval-cost", type=float, default=85.0, help="$ cost per evaluation attempt (--repeat only)")
     parser.add_argument("--start-date", default=None, help="YYYY-MM-DD, inclusive -- slice the fetched window "
                                                              "for out-of-sample / sub-period checks")
     parser.add_argument("--end-date", default=None, help="YYYY-MM-DD, inclusive")

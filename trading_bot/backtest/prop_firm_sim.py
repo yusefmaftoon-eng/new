@@ -213,7 +213,7 @@ class RepeatedAttemptsResult:
 
 
 def simulate_repeated_attempts(trades_by_symbol: dict[str, list[dict]], dollars_per_point: dict[str, float],
-                                rules: PropFirmRules = PropFirmRules(), eval_cost: float = 65.0,
+                                rules: PropFirmRules = PropFirmRules(), eval_cost: float = 85.0,
                                 max_attempts: int = 1000) -> RepeatedAttemptsResult:
     """Restart with a fresh $-cost evaluation attempt immediately after every bust, continuing
     forward through the same trade stream (never replaying trades from before the bust), until
