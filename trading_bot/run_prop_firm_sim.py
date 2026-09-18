@@ -9,8 +9,9 @@ $26,100, contracts 10 micro (eval) -> 20 micro (funded), payouts up to
 $600/day once past the lock threshold. See backtest/prop_firm_sim.py for
 the exact mechanics and its documented simplifications.
 
-Example:
+Examples:
     python -m trading_bot.run_prop_firm_sim --risk-per-trade 150
+    python -m trading_bot.run_prop_firm_sim --risk-per-trade 150 --repeat --eval-cost 65
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ import argparse
 from trading_bot.data.futures_fetcher import fetch_micro_future, CONTRACT_MULTIPLIER, TICK_SIZE
 from trading_bot.backtest.generic_engine import simulate_trades
 from trading_bot.strategies import vwap_reversion_strategy
-from trading_bot.backtest.prop_firm_sim import PropFirmRules, simulate_account
+from trading_bot.backtest.prop_firm_sim import PropFirmRules, simulate_account, simulate_repeated_attempts
 
 SYMBOLS = ["MES", "MNQ", "MGC"]
 
@@ -29,6 +30,10 @@ def main() -> None:
     parser.add_argument("--range", default="60d")
     parser.add_argument("--risk-per-trade", type=float, default=150.0,
                          help="our position-sizing choice, not a firm rule -- $ risked per trade before contract caps")
+    parser.add_argument("--repeat", action="store_true",
+                         help="restart a fresh (paid) evaluation immediately after every bust, continuing through "
+                              "the same trade stream, and report total payouts vs. total eval fees")
+    parser.add_argument("--eval-cost", type=float, default=65.0, help="$ cost per evaluation attempt (--repeat only)")
     args = parser.parse_args()
 
     trades_by_symbol = {}
@@ -42,6 +47,23 @@ def main() -> None:
         print(f"{sym}: {len(df)} bars, {len(trades)} VWAP trades, {df.index[0].date()} .. {df.index[-1].date()}")
 
     rules = PropFirmRules(risk_per_trade=args.risk_per_trade)
+
+    if args.repeat:
+        rep = simulate_repeated_attempts(trades_by_symbol, dpp, rules, eval_cost=args.eval_cost)
+        print(f"\n{'=' * 60}\nRepeated-attempts simulation (${args.eval_cost:.0f}/eval, "
+              f"${rules.risk_per_trade:.0f} risk/trade)\n{'=' * 60}")
+        print(f"Attempts:        {rep.num_attempts}")
+        print(f"Passed eval:     {rep.num_passed_eval}")
+        print(f"Total payouts:   ${rep.total_payouts:,.2f}")
+        print(f"Total eval fees: ${rep.total_eval_fees:,.2f}")
+        print(f"Net profit:      ${rep.net_profit:,.2f}")
+        print("\nPer-attempt breakdown:")
+        for i, a in enumerate(rep.attempts, 1):
+            passed = f"passed {a.eval_passed_date}" if a.eval_passed_date else "never passed eval"
+            end = f"busted {a.bust_date}" if a.outcome == "busted" else f"data ran out ({a.outcome})"
+            print(f"  #{i}: {passed}, {end}, payouts=${a.total_payouts:,.2f}, trades={len(a.trade_log)}")
+        return
+
     result = simulate_account(trades_by_symbol, dpp, rules)
 
     print(f"\n{'=' * 60}\nAccount simulation ({rules.starting_balance:,.0f} start, "

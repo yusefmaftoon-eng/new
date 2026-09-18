@@ -71,8 +71,7 @@ def contracts_for_trade(trade: dict, dollars_per_point: float, risk_per_trade: f
     return max(1, min(ideal, cap))  # always at least 1 contract if the trade is taken at all
 
 
-def simulate_account(trades_by_symbol: dict[str, list[dict]], dollars_per_point: dict[str, float],
-                      rules: PropFirmRules = PropFirmRules()) -> SimResult:
+def _build_events(trades_by_symbol: dict[str, list[dict]], dollars_per_point: dict[str, float]) -> list:
     all_trades = []
     for sym, trades in trades_by_symbol.items():
         for i, t in enumerate(trades):
@@ -87,7 +86,13 @@ def simulate_account(trades_by_symbol: dict[str, list[dict]], dollars_per_point:
         events.append((t["entry_time"], 1, t))   # open
         events.append((t["exit_time"], 0, t))    # close
     events.sort(key=lambda e: (e[0], e[1]))
+    return events
 
+
+def _run_one_attempt(events: list, start_idx: int, rules: PropFirmRules) -> tuple[SimResult, int]:
+    """Runs a single account attempt starting at events[start_idx]. Returns (result, next_idx):
+    next_idx is where a subsequent attempt (after a bust) should resume -- the event right after
+    the one that caused the bust, or len(events) if the data ran out with no bust."""
     closed_balance = rules.starting_balance
     highest_eod_balance = rules.starting_balance
     floor = highest_eod_balance - rules.trailing_drawdown
@@ -127,7 +132,8 @@ def simulate_account(trades_by_symbol: dict[str, list[dict]], dollars_per_point:
             daily_pnl=daily_pnl, trade_log=trade_log,
         )
 
-    for ts, _kind, t in events:
+    for idx in range(start_idx, len(events)):
+        ts, _kind, t = events[idx]
         day = ts.date()
         if current_day is not None and day != current_day:
             close_day()
@@ -171,14 +177,59 @@ def simulate_account(trades_by_symbol: dict[str, list[dict]], dollars_per_point:
 
         worst_equity = closed_balance + t["mae_pts"] * contracts * t["dpp"]
         if worst_equity <= floor:
-            return make_bust_result(t, worst_equity)
+            return make_bust_result(t, worst_equity), idx + 1
 
         open_positions[t["trade_id"]] = {"contracts": contracts, "dpp": t["dpp"], "mae_pts": t["mae_pts"]}
         open_contracts_total += contracts
 
-    return SimResult(
+    result = SimResult(
         outcome="passed_eval_still_funded" if phase == "funded" else "still_in_eval",
         eval_passed_date=eval_passed_date, final_balance=closed_balance, peak_balance=peak_balance,
         total_payouts=total_payouts, floor_locked=locked, locked_floor_value=floor if locked else None,
         daily_pnl=daily_pnl, trade_log=trade_log,
     )
+    return result, len(events)
+
+
+def simulate_account(trades_by_symbol: dict[str, list[dict]], dollars_per_point: dict[str, float],
+                      rules: PropFirmRules = PropFirmRules()) -> SimResult:
+    """Single attempt, start to finish (or bust) -- unchanged behavior/signature from before."""
+    events = _build_events(trades_by_symbol, dollars_per_point)
+    result, _ = _run_one_attempt(events, 0, rules)
+    return result
+
+
+@dataclass
+class RepeatedAttemptsResult:
+    """The actual prop-firm business question: busting is an accepted cost, not a failure state.
+    What matters is total payouts collected minus what you paid to keep re-entering evaluations."""
+    attempts: list = field(default_factory=list)   # one SimResult per attempt
+    eval_cost: float = 0.0
+    num_attempts: int = 0
+    num_passed_eval: int = 0
+    total_payouts: float = 0.0
+    total_eval_fees: float = 0.0
+    net_profit: float = 0.0
+
+
+def simulate_repeated_attempts(trades_by_symbol: dict[str, list[dict]], dollars_per_point: dict[str, float],
+                                rules: PropFirmRules = PropFirmRules(), eval_cost: float = 65.0,
+                                max_attempts: int = 1000) -> RepeatedAttemptsResult:
+    """Restart with a fresh $-cost evaluation attempt immediately after every bust, continuing
+    forward through the same trade stream (never replaying trades from before the bust), until
+    the data runs out or max_attempts is hit. This is the real economics of the prop-firm model:
+    a busted account isn't a loss on its own -- what matters is whether payouts collected across
+    however many attempts it takes exceed the fees paid to keep re-entering."""
+    events = _build_events(trades_by_symbol, dollars_per_point)
+    out = RepeatedAttemptsResult(eval_cost=eval_cost)
+    idx = 0
+    while idx < len(events) and out.num_attempts < max_attempts:
+        result, idx = _run_one_attempt(events, idx, rules)
+        out.attempts.append(result)
+        out.num_attempts += 1
+        out.total_eval_fees += eval_cost
+        out.total_payouts += result.total_payouts
+        if result.eval_passed_date is not None:
+            out.num_passed_eval += 1
+    out.net_profit = out.total_payouts - out.total_eval_fees
+    return out
