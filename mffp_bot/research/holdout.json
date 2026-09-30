@@ -1,0 +1,230 @@
+{
+ "split": "2026-02-10",
+ "frozen_at": "2026-09-30T21:28:17",
+ "strategies": {
+  "orb": {
+   "params": {
+    "or_min": 30,
+    "entry": "break",
+    "stop": "far",
+    "rr": 3.0
+   },
+   "markets": [
+    "SP500"
+   ],
+   "ho": {
+    "trades": 151,
+    "win_rate": 0.44370860927152317,
+    "avg_r": -0.057258314226824494,
+    "pf": 0.8650371394104084,
+    "net": -389.07024517127246,
+    "max_dd": 709.9986572708118
+   },
+   "ho_eval": {
+    "runs": 151,
+    "PASS": 0,
+    "FAIL": 0,
+    "halted": 129,
+    "unfinished": 22,
+    "pass_all": 0.0,
+    "pass_finished": 0.0,
+    "fail_finished": 0.0,
+    "halted_finished": 1.0,
+    "median_days_to_pass": null
+   },
+   "ho_per_market": {
+    "SP500": {
+     "trades": 151,
+     "win_rate": 0.44370860927152317,
+     "avg_r": -0.057258314226824494,
+     "pf": 0.8650371394104084,
+     "net": -389.07024517127246,
+     "max_dd": 709.9986572708118
+    },
+    "GOLD": {
+     "trades": 147,
+     "win_rate": 0.40816326530612246,
+     "avg_r": -0.012303247500225085,
+     "pf": 0.9698317023562467,
+     "net": -81.3859822139891,
+     "max_dd": 619.2372984570435
+    }
+   },
+   "qualifies": false
+  },
+  "sweep": {
+   "params": {
+    "ref": "asia",
+    "swing": 6,
+    "rr": 2.0,
+    "window_end": 11
+   },
+   "markets": [
+    "GOLD"
+   ],
+   "ho": {
+    "trades": 77,
+    "win_rate": 0.3246753246753247,
+    "avg_r": -0.257281712892872,
+    "pf": 0.5806131461226852,
+    "net": -891.4811351738011,
+    "max_dd": 905.0269617787584
+   },
+   "ho_eval": {
+    "runs": 77,
+    "PASS": 0,
+    "FAIL": 0,
+    "halted": 66,
+    "unfinished": 11,
+    "pass_all": 0.0,
+    "pass_finished": 0.0,
+    "fail_finished": 0.0,
+    "halted_finished": 1.0,
+    "median_days_to_pass": null
+   },
+   "ho_per_market": {
+    "SP500": {
+     "trades": 110,
+     "win_rate": 0.33636363636363636,
+     "avg_r": -0.16204631540719586,
+     "pf": 0.7228197926815373,
+     "net": -802.1292612656197,
+     "max_dd": 935.6242680968081
+    },
+    "GOLD": {
+     "trades": 77,
+     "win_rate": 0.3246753246753247,
+     "avg_r": -0.257281712892872,
+     "pf": 0.5806131461226852,
+     "net": -891.4811351738011,
+     "max_dd": 905.0269617787584
+    }
+   },
+   "qualifies": false
+  },
+  "poc_rejection": {
+   "params": {
+    "profile": "full",
+    "rr": 3.0,
+    "buffer_atr": 0.75,
+    "approach_atr": 2.0
+   },
+   "markets": [
+    "GOLD"
+   ],
+   "ho": {
+    "trades": 25,
+    "win_rate": 0.32,
+    "avg_r": -0.02368082822276391,
+    "pf": 0.9608138889915407,
+    "net": -26.64093175060941,
+    "max_dd": 206.7816362359776
+   },
+   "ho_eval": {
+    "runs": 25,
+    "PASS": 0,
+    "FAIL": 0,
+    "halted": 0,
+    "unfinished": 25,
+    "pass_all": 0.0,
+    "pass_finished": 0.0,
+    "fail_finished": 0.0,
+    "halted_finished": 0.0,
+    "median_days_to_pass": null
+   },
+   "ho_per_market": {
+    "GOLD": {
+     "trades": 25,
+     "win_rate": 0.32,
+     "avg_r": -0.02368082822276391,
+     "pf": 0.9608138889915407,
+     "net": -26.64093175060941,
+     "max_dd": 206.7816362359776
+    }
+   },
+   "qualifies": false
+  },
+  "gap_fade": {
+   "params": {
+    "min_gap": 0.005,
+    "stop_gap": 0.5,
+    "target": "fill"
+   },
+   "markets": [
+    "SP500"
+   ],
+   "ho": {
+    "trades": 38,
+    "win_rate": 0.3684210526315789,
+    "avg_r": -0.020683454432784458,
+    "pf": 0.962383307663109,
+    "net": -35.36870708006147,
+    "max_dd": 362.63353731003406
+   },
+   "ho_eval": {
+    "runs": 38,
+    "PASS": 0,
+    "FAIL": 0,
+    "halted": 14,
+    "unfinished": 24,
+    "pass_all": 0.0,
+    "pass_finished": 0.0,
+    "fail_finished": 0.0,
+    "halted_finished": 1.0,
+    "median_days_to_pass": null
+   },
+   "ho_per_market": {
+    "SP500": {
+     "trades": 38,
+     "win_rate": 0.3684210526315789,
+     "avg_r": -0.020683454432784458,
+     "pf": 0.962383307663109,
+     "net": -35.36870708006147,
+     "max_dd": 362.63353731003406
+    }
+   },
+   "qualifies": false
+  },
+  "intraday_momentum": {
+   "params": {
+    "min_r1": 0.0,
+    "stop_atr": 5.0,
+    "confirm": true
+   },
+   "markets": [
+    "SP500"
+   ],
+   "ho": {
+    "trades": 83,
+    "win_rate": 0.3855421686746988,
+    "avg_r": -0.11153846708166845,
+    "pf": 0.45241792170982265,
+    "net": -416.5961745500317,
+    "max_dd": 460.62025037731803
+   },
+   "ho_eval": {
+    "runs": 83,
+    "PASS": 0,
+    "FAIL": 0,
+    "halted": 59,
+    "unfinished": 24,
+    "pass_all": 0.0,
+    "pass_finished": 0.0,
+    "fail_finished": 0.0,
+    "halted_finished": 1.0,
+    "median_days_to_pass": null
+   },
+   "ho_per_market": {
+    "SP500": {
+     "trades": 83,
+     "win_rate": 0.3855421686746988,
+     "avg_r": -0.11153846708166845,
+     "pf": 0.45241792170982265,
+     "net": -416.5961745500317,
+     "max_dd": 460.62025037731803
+    }
+   },
+   "qualifies": false
+  }
+ }
+}

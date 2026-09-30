@@ -1,2 +1,3 @@
 requests>=2.31
 websockets>=13
+pytest>=8  # tests only

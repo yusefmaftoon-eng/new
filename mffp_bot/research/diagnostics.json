@@ -1,0 +1,167 @@
+{
+ "gross_vs_net": {
+  "orb": {
+   "is": {
+    "net": -0.01910807298393649,
+    "gross": 0.07166230672839433
+   },
+   "ho": {
+    "net": -0.057258314226824494,
+    "gross": 0.03376557630610687
+   }
+  },
+  "sweep": {
+   "is": {
+    "net": -0.024476351468633712,
+    "gross": 0.07998736111111729
+   },
+   "ho": {
+    "net": -0.257281712892872,
+    "gross": -0.20402361991341708
+   }
+  },
+  "poc_rejection": {
+   "is": {
+    "net": 0.06438851871872427,
+    "gross": 0.19966706576529172
+   },
+   "ho": {
+    "net": -0.02368082822276391,
+    "gross": 0.06116706473238643
+   }
+  },
+  "gap_fade": {
+   "is": {
+    "net": 0.0937227600605169,
+    "gross": 0.195773127070707
+   },
+   "ho": {
+    "net": -0.020683454432784458,
+    "gross": 0.07013342076023635
+   }
+  },
+  "intraday_momentum": {
+   "is": {
+    "net": -0.08559486550062205,
+    "gross": -0.0015439793093926573
+   },
+   "ho": {
+    "net": -0.11153846708166845,
+    "gross": -0.0322579625875623
+   }
+  }
+ },
+ "grid_holdout": {
+  "orb": {
+   "combos": 144,
+   "positive_share": 0.06944444444444445,
+   "qualifying": 0,
+   "best": {
+    "avg_r": 0.10394111061445563,
+    "pf": 1.2188240646743875,
+    "trades": 75,
+    "pass": 0.0,
+    "params": {
+     "or_min": 30,
+     "entry": "fvg",
+     "stop": "mid",
+     "rr": 3.0
+    },
+    "markets": [
+     "SP500"
+    ]
+   }
+  },
+  "sweep": {
+   "combos": 180,
+   "positive_share": 0.0,
+   "qualifying": 0,
+   "best": {
+    "avg_r": -0.07349098381107105,
+    "pf": 0.8396642969574344,
+    "trades": 209,
+    "pass": 0.0,
+    "params": {
+     "ref": "london",
+     "swing": 3,
+     "rr": 1.0,
+     "window_end": 12
+    },
+    "markets": [
+     "SP500",
+     "GOLD"
+    ]
+   }
+  },
+  "poc_rejection": {
+   "combos": 32,
+   "positive_share": 0.0,
+   "qualifying": 0,
+   "best": {
+    "avg_r": -0.0027251988030965457,
+    "pf": 0.994235548453626,
+    "trades": 33,
+    "pass": 0.0,
+    "params": {
+     "profile": "full",
+     "rr": 1.5,
+     "buffer_atr": 0.25,
+     "approach_atr": 1.0
+    },
+    "markets": [
+     "GOLD"
+    ]
+   }
+  },
+  "gap_fade": {
+   "combos": 24,
+   "positive_share": 0.16666666666666666,
+   "qualifying": 0,
+   "best": {
+    "avg_r": 0.03323929511738206,
+    "pf": 1.1069796560286507,
+    "trades": 38,
+    "pass": 0.0,
+    "params": {
+     "min_gap": 0.005,
+     "stop_gap": 1.0,
+     "target": "fill"
+    },
+    "markets": [
+     "SP500"
+    ]
+   }
+  },
+  "intraday_momentum": {
+   "combos": 18,
+   "positive_share": 0.0,
+   "qualifying": 0,
+   "best": {
+    "avg_r": -0.06773388149215277,
+    "pf": 0.6138006509457047,
+    "trades": 102,
+    "pass": 0.0,
+    "params": {
+     "min_r1": 0.002,
+     "stop_atr": 5.0,
+     "confirm": false
+    },
+    "markets": [
+     "SP500"
+    ]
+   }
+  }
+ },
+ "baseline": {
+  "cost_0.00R": {
+   "PASS": 0.1915,
+   "FAIL": 0.0,
+   "halted": 0.8085
+  },
+  "cost_0.10R": {
+   "PASS": 0.00925,
+   "FAIL": 0.0,
+   "halted": 0.99075
+  }
+ }
+}

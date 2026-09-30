@@ -174,7 +174,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=60)
     ap.add_argument("--csv", default="btc_5m.csv")
-    ap.add_argument("--symbol", default=None, help="market key from config.MARKETS (default: first of cfg.symbols)")
+    ap.add_argument("--symbol", default="BTC", help="market key from config.MARKETS")
     ap.add_argument("--strategy", default=None)
     ap.add_argument("--rr", type=float)
     ap.add_argument("--risk", type=float)
@@ -182,7 +182,7 @@ def main():
     cfg = Config()
     if a.strategy:
         cfg.strategy = a.strategy
-    cfg = cfg.for_market(a.symbol or cfg.symbols[0])
+    cfg = cfg.for_market(a.symbol)
     if a.rr:
         cfg.reward_risk = a.rr
     if a.risk:

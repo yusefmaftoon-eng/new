@@ -18,6 +18,11 @@ Python bot for the MyFundedPerps (MFFU's perps firm) **$10K 1-Step Select** eval
 | `risk.py` | Guardian: floors, kill switch, daily stop, target banking, sizing |
 | `bot.py` | Live loop |
 | `backtest.py` | Trade-level backtest + eval pass-rate replay |
+| `research/` | Proxy data, proxy validation, locked-holdout strategy research (see `RESULTS.md`) |
+| `tests/` | Signal, simulator and per-asset-class sizing tests (`python -m pytest tests`) |
+
+**Strategy research (Sep 2026):** five candidates on SP500/GOLD perps with a locked holdout; none
+qualified, so the bot still runs the original placeholder signal. Full report: `RESULTS.md`.
 
 ## What the risk guardian enforces
 - **Kill switch:** flattens and exits if equity gets within $50 of *either* floor (static $9,700 or today's daily floor). Stops can slip; this buffer is why.
@@ -61,6 +66,8 @@ A strategy is only worth running if its replayed pass rate clearly beats that.
 - MyFundedPerps allows bots/agents but prohibits HFT, latency arbitrage, platform exploitation,
   cross-account coordination, risk-limit circumvention, and unrealistic sizing. Re-check the terms
   before going live.
-- Crypto costs: 0.03% per fill + 0.03%/day swap. At $45 risk with tight stops, fees are ~10-15% of R.
-  Wider stops / smaller notional cut that drag.
+- Costs are per asset class (`config.ASSET_CLASS_COSTS`): crypto 0.03%/fill + 0.03%/day swap,
+  stocks/commodities/indices 0.005% + 0.015%/day, FX 0.0025% + 0.005%/day. `Config.for_market()`
+  binds a config to one market from `config.MARKETS` (ids, decimals, leverage cap, costs, slippage).
+- Backtest another market: `python backtest.py --symbol GOLD --strategy orb --csv data/XAUUSD_5m.csv`.
 - Ctrl-C leaves open positions protected by their attached TP/SL.

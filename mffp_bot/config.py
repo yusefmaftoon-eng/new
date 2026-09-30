@@ -48,10 +48,7 @@ class Config:
     account_id: str = os.getenv("FP_ACCOUNT_ID", "")
     dry_run: bool = _env_bool("DRY_RUN", True)          # default ON: logs orders, sends nothing
 
-    # ---- markets: the bot scans every symbol, one position at a time across all of them ----
-    symbols: tuple = tuple(s for s in os.getenv("FP_SYMBOLS", "BTC").split(",") if s)
-
-    # ---- market (filled in per symbol by for_market) ----
+    # ---- market (defaults = BTC, as before; for_market() rebinds to any MARKETS entry) ----
     market_id: str = "binance|BTCUSDT"
     provider: str = "binance"
     coin: str = "BTCUSDT"
@@ -76,8 +73,10 @@ class Config:
     target_buffer: float = 12.0      # bank the pass once equity >= target + this
     max_notional_mult: float = 3.0   # notional cap = 3x starting balance (and never above max leverage)
 
-    # ---- strategy selection (see strategy.STRATEGIES) ----
-    strategy: str = os.getenv("FP_STRATEGY", "trend_breakout")
+    # ---- strategy selection (see strategy.STRATEGIES). The live bot only supports trend_breakout:
+    # the research strategies need a time exit (exit_by) that bot.py does not implement, and none
+    # of them qualified (RESULTS.md), so they are backtest-only. ----
+    strategy: str = "trend_breakout"
     params: dict = field(default_factory=dict)   # per-strategy tunables; defaults live in strategy.py
 
     # ---- legacy strategy: 15m trend filter + 5m Donchian breakout, ATR stop, fixed R:R ----
