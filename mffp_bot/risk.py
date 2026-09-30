@@ -13,8 +13,9 @@ from strategy import NY
 
 
 def position_size(risk_dollars, entry, stop, cfg, starting_balance):
-    """Size so that a stop-out costs ~risk_dollars including both fees and slippage."""
-    per_unit = abs(entry - stop) + entry * (2 * cfg.fee_rate + cfg.slippage_bps / 10_000)
+    """Size so that a stop-out costs at most risk_dollars including both fees and slippage.
+    Fees/slippage are charged on the higher of entry and stop, so shorts (stop above entry) stay inside the budget too."""
+    per_unit = abs(entry - stop) + max(entry, stop) * (2 * cfg.fee_rate + cfg.slippage_bps / 10_000)
     if per_unit <= 0 or entry <= 0:
         return 0.0
     size = min(risk_dollars / per_unit, cfg.max_notional_mult * starting_balance / entry)
