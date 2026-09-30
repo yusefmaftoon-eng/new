@@ -1,0 +1,628 @@
+{
+ "split": "2026-02-10",
+ "frozen_at": "2026-09-30T21:28:17",
+ "strategies": {
+  "orb": {
+   "params": {
+    "or_min": 30,
+    "entry": "break",
+    "stop": "far",
+    "rr": 3.0
+   },
+   "markets": [
+    "SP500"
+   ],
+   "markets_tested": [
+    "SP500",
+    "GOLD"
+   ],
+   "per_market_is": {
+    "SP500": {
+     "trades": 360,
+     "win_rate": 0.45,
+     "avg_r": -0.01910807298393649,
+     "pf": 0.9559402176031967,
+     "net": -309.55078233977156,
+     "max_dd": 545.3613832631057
+    },
+    "GOLD": {
+     "trades": 339,
+     "win_rate": 0.4336283185840708,
+     "avg_r": -0.028284174074440963,
+     "pf": 0.9292941303189508,
+     "net": -431.4750755055973,
+     "max_dd": 907.40468150239
+    }
+   },
+   "is": {
+    "trades": 360,
+    "win_rate": 0.45,
+    "avg_r": -0.01910807298393649,
+    "pf": 0.9559402176031967,
+    "net": -309.55078233977156,
+    "max_dd": 545.3613832631057
+   },
+   "is_eval": {
+    "runs": 360,
+    "PASS": 0,
+    "FAIL": 0,
+    "halted": 246,
+    "unfinished": 114,
+    "pass_all": 0.0,
+    "pass_finished": 0.0,
+    "fail_finished": 0.0,
+    "halted_finished": 1.0,
+    "median_days_to_pass": null
+   },
+   "wf_oos": {
+    "trades": 260,
+    "win_rate": 0.38846153846153847,
+    "avg_r": -0.05236196712790134,
+    "pf": 0.8961460420091699,
+    "net": -612.6350153964456,
+    "max_dd": 1103.4409845700025
+   },
+   "wf_folds": [
+    {
+     "train": [
+      "2024-09-01",
+      "2025-02-24"
+     ],
+     "test": [
+      "2025-02-24",
+      "2025-05-22"
+     ],
+     "pick": "or_min=15, entry=break, stop=far, rr=2.0",
+     "test_trades": 71,
+     "test_avg_r": -0.04363379881648976,
+     "test_pf": 0.918066785672679
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-05-22"
+     ],
+     "test": [
+      "2025-05-22",
+      "2025-08-18"
+     ],
+     "pick": "or_min=15, entry=retest, stop=far, rr=3.0",
+     "test_trades": 62,
+     "test_avg_r": 0.08619132686183559,
+     "test_pf": 1.1839343371950706
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-08-18"
+     ],
+     "test": [
+      "2025-08-18",
+      "2025-11-14"
+     ],
+     "pick": "or_min=15, entry=break, stop=far, rr=2.0",
+     "test_trades": 64,
+     "test_avg_r": -0.046012783652615095,
+     "test_pf": 0.9150134166790023
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-11-14"
+     ],
+     "test": [
+      "2025-11-14",
+      "2026-02-10"
+     ],
+     "pick": "or_min=30, entry=break, stop=far, rr=3.0",
+     "test_trades": 63,
+     "test_avg_r": -0.20500247379285738,
+     "test_pf": 0.5632970143093662
+    }
+   ],
+   "raw_avg_r": -0.017283056668082716,
+   "smoothed_avg_r": -0.02228966785824784,
+   "neighbours": {
+    "or_min=15, entry=break, stop=far, rr=3.0": -0.010532725300705977,
+    "or_min=30, entry=retest, stop=far, rr=3.0": -0.01663209822892665,
+    "or_min=30, entry=fvg, stop=far, rr=3.0": -0.04406378292324285,
+    "or_min=30, entry=break, stop=mid, rr=3.0": -0.022351250242396953,
+    "or_min=30, entry=break, stop=far, rr=2.0": -0.02287509378613189
+   },
+   "stable": false,
+   "grid_size": 48,
+   "grid_positive_share": 0.020833333333333332
+  },
+  "sweep": {
+   "params": {
+    "ref": "asia",
+    "swing": 6,
+    "rr": 2.0,
+    "window_end": 11
+   },
+   "markets": [
+    "GOLD"
+   ],
+   "markets_tested": [
+    "SP500",
+    "GOLD"
+   ],
+   "per_market_is": {
+    "SP500": {
+     "trades": 245,
+     "win_rate": 0.3795918367346939,
+     "avg_r": -0.058144735337824834,
+     "pf": 0.8913098670223968,
+     "net": -641.0457070995194,
+     "max_dd": 1012.8914528270742
+    },
+    "GOLD": {
+     "trades": 206,
+     "win_rate": 0.3786407766990291,
+     "avg_r": -0.024476351468633712,
+     "pf": 0.9541721995750285,
+     "net": -226.89577811423578,
+     "max_dd": 1402.8542613918578
+    }
+   },
+   "is": {
+    "trades": 206,
+    "win_rate": 0.3786407766990291,
+    "avg_r": -0.024476351468633712,
+    "pf": 0.9541721995750285,
+    "net": -226.89577811423578,
+    "max_dd": 1402.8542613918578
+   },
+   "is_eval": {
+    "runs": 206,
+    "PASS": 5,
+    "FAIL": 0,
+    "halted": 127,
+    "unfinished": 74,
+    "pass_all": 0.024271844660194174,
+    "pass_finished": 0.03787878787878788,
+    "fail_finished": 0.0,
+    "halted_finished": 0.9621212121212122,
+    "median_days_to_pass": 97
+   },
+   "wf_oos": {
+    "trades": 250,
+    "win_rate": 0.324,
+    "avg_r": -0.18745036940557286,
+    "pf": 0.6785300911510241,
+    "net": -2108.8166558126964,
+    "max_dd": 2401.3623079101617
+   },
+   "wf_folds": [
+    {
+     "train": [
+      "2024-09-01",
+      "2025-02-24"
+     ],
+     "test": [
+      "2025-02-24",
+      "2025-05-22"
+     ],
+     "pick": "ref=asia, swing=6, rr=1.0, window_end=12",
+     "test_trades": 71,
+     "test_avg_r": -0.34644153105657494,
+     "test_pf": 0.41757287389601205
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-05-22"
+     ],
+     "test": [
+      "2025-05-22",
+      "2025-08-18"
+     ],
+     "pick": "ref=london, swing=6, rr=opp, window_end=11",
+     "test_trades": 36,
+     "test_avg_r": -0.40044280459232334,
+     "test_pf": 0.422532861911928
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-08-18"
+     ],
+     "test": [
+      "2025-08-18",
+      "2025-11-14"
+     ],
+     "pick": "ref=london, swing=6, rr=2.0, window_end=12",
+     "test_trades": 72,
+     "test_avg_r": -0.04268192453293445,
+     "test_pf": 0.9225244061128399
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-11-14"
+     ],
+     "test": [
+      "2025-11-14",
+      "2026-02-10"
+     ],
+     "pick": "ref=london, swing=6, rr=2.0, window_end=12",
+     "test_trades": 71,
+     "test_avg_r": -0.06727048048847145,
+     "test_pf": 0.877262663328515
+    }
+   ],
+   "raw_avg_r": -0.0944920861649092,
+   "smoothed_avg_r": -0.11191504369139979,
+   "neighbours": {
+    "ref=london, swing=6, rr=2.0, window_end=11": -0.10091770422054923,
+    "ref=asia, swing=3, rr=2.0, window_end=11": -0.12433732231737178,
+    "ref=asia, swing=6, rr=1.5, window_end=11": -0.1289646619980239,
+    "ref=asia, swing=6, rr=3.0, window_end=11": -0.1462698936248474,
+    "ref=asia, swing=6, rr=2.0, window_end=10": -0.08916787429435827,
+    "ref=asia, swing=6, rr=2.0, window_end=12": -0.0992557632197388
+   },
+   "stable": false,
+   "grid_size": 60,
+   "grid_positive_share": 0.0
+  },
+  "poc_rejection": {
+   "params": {
+    "profile": "full",
+    "rr": 3.0,
+    "buffer_atr": 0.75,
+    "approach_atr": 2.0
+   },
+   "markets": [
+    "GOLD"
+   ],
+   "markets_tested": [
+    "GOLD"
+   ],
+   "per_market_is": {
+    "GOLD": {
+     "trades": 60,
+     "win_rate": 0.4,
+     "avg_r": 0.06438851871872427,
+     "pf": 1.1130204901668395,
+     "net": 173.84900054055535,
+     "max_dd": 447.01164873000334
+    }
+   },
+   "is": {
+    "trades": 60,
+    "win_rate": 0.4,
+    "avg_r": 0.06438851871872427,
+    "pf": 1.1130204901668395,
+    "net": 173.84900054055535,
+    "max_dd": 447.01164873000334
+   },
+   "is_eval": {
+    "runs": 60,
+    "PASS": 0,
+    "FAIL": 0,
+    "halted": 23,
+    "unfinished": 37,
+    "pass_all": 0.0,
+    "pass_finished": 0.0,
+    "fail_finished": 0.0,
+    "halted_finished": 1.0,
+    "median_days_to_pass": null
+   },
+   "wf_oos": {
+    "trades": 38,
+    "win_rate": 0.2894736842105263,
+    "avg_r": -0.10350113316971203,
+    "pf": 0.8456938982717114,
+    "net": -176.98693772020758,
+    "max_dd": 447.01164873000334
+   },
+   "wf_folds": [
+    {
+     "train": [
+      "2024-09-01",
+      "2025-02-24"
+     ],
+     "test": [
+      "2025-02-24",
+      "2025-05-22"
+     ],
+     "pick": "profile=rth, rr=3.0, buffer_atr=0.75, approach_atr=2.0",
+     "test_trades": 10,
+     "test_avg_r": -0.013056860517061475,
+     "test_pf": 0.980664128219132
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-05-22"
+     ],
+     "test": [
+      "2025-05-22",
+      "2025-08-18"
+     ],
+     "pick": "profile=full, rr=3.0, buffer_atr=0.75, approach_atr=2.0",
+     "test_trades": 8,
+     "test_avg_r": 0.5313164974696316,
+     "test_pf": 2.6421352508835376
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-08-18"
+     ],
+     "test": [
+      "2025-08-18",
+      "2025-11-14"
+     ],
+     "pick": "profile=full, rr=3.0, buffer_atr=0.75, approach_atr=2.0",
+     "test_trades": 8,
+     "test_avg_r": -0.0053349527728823315,
+     "test_pf": 0.9919514154839564
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-11-14"
+     ],
+     "test": [
+      "2025-11-14",
+      "2026-02-10"
+     ],
+     "pick": "profile=full, rr=3.0, buffer_atr=0.75, approach_atr=2.0",
+     "test_trades": 12,
+     "test_avg_r": -0.6675272344043698,
+     "test_pf": 0.26136357182617936
+    }
+   ],
+   "raw_avg_r": 0.06438851871872427,
+   "smoothed_avg_r": -0.003908423116166583,
+   "neighbours": {
+    "profile=rth, rr=3.0, buffer_atr=0.75, approach_atr=2.0": -0.1739613250443517,
+    "profile=full, rr=2.0, buffer_atr=0.75, approach_atr=2.0": 0.11908225070621346,
+    "profile=full, rr=3.0, buffer_atr=0.25, approach_atr=2.0": -0.006975278355346188,
+    "profile=full, rr=3.0, buffer_atr=0.75, approach_atr=1.0": -0.022076281606072765
+   },
+   "stable": false,
+   "grid_size": 32,
+   "grid_positive_share": 0.09375
+  },
+  "gap_fade": {
+   "params": {
+    "min_gap": 0.005,
+    "stop_gap": 0.5,
+    "target": "fill"
+   },
+   "markets": [
+    "SP500"
+   ],
+   "markets_tested": [
+    "SP500"
+   ],
+   "per_market_is": {
+    "SP500": {
+     "trades": 55,
+     "win_rate": 0.41818181818181815,
+     "avg_r": 0.0937227600605169,
+     "pf": 1.183073397747053,
+     "net": 231.96383114977942,
+     "max_dd": 287.81160403474513
+    }
+   },
+   "is": {
+    "trades": 55,
+    "win_rate": 0.41818181818181815,
+    "avg_r": 0.0937227600605169,
+    "pf": 1.183073397747053,
+    "net": 231.96383114977942,
+    "max_dd": 287.81160403474513
+   },
+   "is_eval": {
+    "runs": 55,
+    "PASS": 0,
+    "FAIL": 0,
+    "halted": 4,
+    "unfinished": 51,
+    "pass_all": 0.0,
+    "pass_finished": 0.0,
+    "fail_finished": 0.0,
+    "halted_finished": 1.0,
+    "median_days_to_pass": null
+   },
+   "wf_oos": {
+    "trades": 60,
+    "win_rate": 0.35,
+    "avg_r": -0.09173180287959906,
+    "pf": 0.8330283739130769,
+    "net": -247.67586777491755,
+    "max_dd": 518.3595786080934
+   },
+   "wf_folds": [
+    {
+     "train": [
+      "2024-09-01",
+      "2025-02-24"
+     ],
+     "test": [
+      "2025-02-24",
+      "2025-05-22"
+     ],
+     "pick": "min_gap=0.003, stop_gap=0.5, target=fill",
+     "test_trades": 20,
+     "test_avg_r": 0.07238158199818943,
+     "test_pf": 1.1205644833963047
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-05-22"
+     ],
+     "test": [
+      "2025-05-22",
+      "2025-08-18"
+     ],
+     "pick": "min_gap=0.003, stop_gap=1.0, target=fill",
+     "test_trades": 21,
+     "test_avg_r": -0.26614133884184804,
+     "test_pf": 0.4615365515724349
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-08-18"
+     ],
+     "test": [
+      "2025-08-18",
+      "2025-11-14"
+     ],
+     "pick": "min_gap=0.005, stop_gap=0.5, target=fill",
+     "test_trades": 9,
+     "test_avg_r": -0.14788207901857975,
+     "test_pf": 0.7611648873599149
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-11-14"
+     ],
+     "test": [
+      "2025-11-14",
+      "2026-02-10"
+     ],
+     "pick": "min_gap=0.005, stop_gap=0.5, target=fill",
+     "test_trades": 10,
+     "test_avg_r": -0.003163298589370597,
+     "test_pf": 0.9936783566330483
+    }
+   ],
+   "raw_avg_r": 0.0937227600605169,
+   "smoothed_avg_r": 0.009968920967380784,
+   "neighbours": {
+    "min_gap=0.003, stop_gap=0.5, target=fill": -0.07474211615428099,
+    "min_gap=0.005, stop_gap=1.0, target=fill": -0.009334083044957106,
+    "min_gap=0.005, stop_gap=0.5, target=half": 0.030229123008244332
+   },
+   "stable": false,
+   "grid_size": 24,
+   "grid_positive_share": 0.08333333333333333
+  },
+  "intraday_momentum": {
+   "params": {
+    "min_r1": 0.0,
+    "stop_atr": 5.0,
+    "confirm": true
+   },
+   "markets": [
+    "SP500"
+   ],
+   "markets_tested": [
+    "SP500"
+   ],
+   "per_market_is": {
+    "SP500": {
+     "trades": 178,
+     "win_rate": 0.4157303370786517,
+     "avg_r": -0.08559486550062205,
+     "pf": 0.5765721123440615,
+     "net": -685.6148726599824,
+     "max_dd": 757.1771442580659
+    }
+   },
+   "is": {
+    "trades": 178,
+    "win_rate": 0.4157303370786517,
+    "avg_r": -0.08559486550062205,
+    "pf": 0.5765721123440615,
+    "net": -685.6148726599824,
+    "max_dd": 757.1771442580659
+   },
+   "is_eval": {
+    "runs": 178,
+    "PASS": 0,
+    "FAIL": 0,
+    "halted": 131,
+    "unfinished": 47,
+    "pass_all": 0.0,
+    "pass_finished": 0.0,
+    "fail_finished": 0.0,
+    "halted_finished": 1.0,
+    "median_days_to_pass": null
+   },
+   "wf_oos": {
+    "trades": 207,
+    "win_rate": 0.41545893719806765,
+    "avg_r": -0.06568403901655996,
+    "pf": 0.6652494736227338,
+    "net": -611.8468234392556,
+    "max_dd": 787.3773841891973
+   },
+   "wf_folds": [
+    {
+     "train": [
+      "2024-09-01",
+      "2025-02-24"
+     ],
+     "test": [
+      "2025-02-24",
+      "2025-05-22"
+     ],
+     "pick": "min_r1=0.0, stop_atr=5.0, confirm=False",
+     "test_trades": 62,
+     "test_avg_r": -0.09108488997521591,
+     "test_pf": 0.6117908110232444
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-05-22"
+     ],
+     "test": [
+      "2025-05-22",
+      "2025-08-18"
+     ],
+     "pick": "min_r1=0.0, stop_atr=5.0, confirm=False",
+     "test_trades": 54,
+     "test_avg_r": -0.013550661971398354,
+     "test_pf": 0.9051799280022655
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-08-18"
+     ],
+     "test": [
+      "2025-08-18",
+      "2025-11-14"
+     ],
+     "pick": "min_r1=0.0, stop_atr=5.0, confirm=False",
+     "test_trades": 62,
+     "test_avg_r": -0.050571885739061274,
+     "test_pf": 0.7367047253654417
+    },
+    {
+     "train": [
+      "2024-09-01",
+      "2025-11-14"
+     ],
+     "test": [
+      "2025-11-14",
+      "2026-02-10"
+     ],
+     "pick": "min_r1=0.0, stop_atr=5.0, confirm=True",
+     "test_trades": 29,
+     "test_avg_r": -0.14076345640300741,
+     "test_pf": 0.36657239092168287
+    }
+   ],
+   "raw_avg_r": -0.08559486550062205,
+   "smoothed_avg_r": -0.09858729828929429,
+   "neighbours": {
+    "min_r1=0.002, stop_atr=5.0, confirm=True": -0.10390662496247181,
+    "min_r1=0.0, stop_atr=3.0, confirm=True": -0.10322201392402951,
+    "min_r1=0.0, stop_atr=5.0, confirm=False": -0.10162568877005376
+   },
+   "stable": false,
+   "grid_size": 18,
+   "grid_positive_share": 0.0
+  }
+ }
+}
