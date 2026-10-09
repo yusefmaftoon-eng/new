@@ -14,7 +14,7 @@ from datetime import datetime
 
 from config import Config
 from risk import position_size
-from strategy import LOOKBACK_MS, NY, generate, take_profit
+from strategy import LOOKBACK_MS, NY, STEP_MS, generate, take_profit
 
 BASE = 10_000.0
 
@@ -43,11 +43,15 @@ def simulate(bars, cfg, start_t=None, end_t=None):
     is used as warm-up); a trade opened before end_t is followed to its exit."""
     span, slip, R = cfg.interval_min * 60_000, cfg.slippage_bps / 10_000, cfg.risk_per_trade
     look = LOOKBACK_MS.get(cfg.strategy, 300 * span)
+    step = STEP_MS.get(cfg.strategy)
     ts = [b["t"] for b in bars]
     first = bisect.bisect_left(ts, max(ts[0] + look, start_t or 0)) if bars else 0
     last = bisect.bisect_left(ts, end_t) if end_t else len(bars)
     trades, i = [], first
     while i < min(last, len(bars) - 1):
+        if step and (ts[i] + span) % step:                 # strategy can't fire here: skip cheaply
+            i += 1
+            continue
         lo = bisect.bisect_left(ts, ts[i] - look, 0, i)
         sig = generate(bars[lo:i + 1], cfg)
         if not sig:

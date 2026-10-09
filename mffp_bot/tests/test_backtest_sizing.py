@@ -27,7 +27,7 @@ def test_cost_schedule_matches_fee_page():
 
 
 # typical entry/stop for each market (wide enough that the notional cap does not bind)
-CASES = {"BTC": (83000.0, 82500.0), "GOLD": (4160.0, 4140.0), "SP500": (7660.0, 7630.0),
+CASES = {"BTC": (83000.0, 82500.0), "ETH": (2600.0, 2560.0), "SOL": (180.0, 176.0), "GOLD": (4160.0, 4140.0), "SP500": (7660.0, 7630.0),
          "EUR": (1.1336, 1.1300), "JPY": (157.30, 156.80)}
 
 

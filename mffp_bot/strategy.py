@@ -478,6 +478,111 @@ def intraday_momentum(bars, cfg):
     return Signal(side, c, stop, a, bars[-1]["t"], rr=4.0, exit_by=ny_ms(day, 16))
 
 
+# --------------------------------------------------------------------------- crypto (24/7, higher timeframes)
+# Crypto costs ~12 bp per round trip (0.03%/fill + slippage), so stops have to be wide (~1%+) for costs
+# to stay a small slice of R: these work on 1h / 4h / daily structure built from the 5m feed.
+DAY = 24 * HOUR
+
+
+def _htf(bars, minutes):
+    """Complete higher-timeframe bars (UTC-aligned) from 5m bars."""
+    return resample(bars, 5, minutes // 5)
+
+
+DONCHIAN_DEFAULTS = {"n": 20, "stop_atr": 3.0, "rr": 3.0}
+
+
+def donchian_4h(bars, cfg):
+    """On each 4h close (UTC grid): close above the highest high of the previous n 4h bars -> long,
+    below the lowest low -> short. Stop stop_atr x ATR(14, 4h) from the close, target rr x risk."""
+    p = _p(cfg, DONCHIAN_DEFAULTS)
+    now = bars[-1]["t"] + SPAN
+    if now % (4 * HOUR):
+        return None
+    h4 = _htf(bars, 240)
+    n = p["n"]
+    if len(h4) < max(n, 15) + 1 or h4[-1]["t"] + 4 * HOUR != now:
+        return None
+    a = atr(h4[-60:], 14)
+    if not a:
+        return None
+    prev, c = h4[-n - 1:-1], h4[-1]["c"]
+    hh, ll = max(b["h"] for b in prev), min(b["l"] for b in prev)
+    if c > hh:
+        return Signal("buy", c, c - p["stop_atr"] * a, a, bars[-1]["t"], rr=p["rr"])
+    if c < ll:
+        return Signal("sell", c, c + p["stop_atr"] * a, a, bars[-1]["t"], rr=p["rr"])
+    return None
+
+
+VOLBO_DEFAULTS = {"k": 0.5, "stop_range": 0.5, "rr": 2.0}
+
+
+def vol_breakout(bars, cfg):
+    """UTC day. Trigger level = today's open +/- k x yesterday's range. The first 5m close beyond
+    either level (once per day) is traded in that direction; stop stop_range x yesterday's range
+    from the close; target rr x risk; flat at the end of the UTC day."""
+    p = _p(cfg, VOLBO_DEFAULTS)
+    now = bars[-1]["t"] + SPAN
+    d0 = now // DAY * DAY
+    if now == d0:
+        return None
+    today = _between(bars, d0, now)
+    yday = _between(bars, d0 - DAY, d0)
+    if not today or today[0]["t"] != d0 or not _complete(yday, d0 - DAY, d0, 0.95):
+        return None
+    rng = max(b["h"] for b in yday) - min(b["l"] for b in yday)
+    o = today[0]["o"]
+    up, dn = o + p["k"] * rng, o - p["k"] * rng
+    first = None
+    for i, b in enumerate(today):
+        if b["c"] > up:
+            first = (i, "buy")
+            break
+        if b["c"] < dn:
+            first = (i, "sell")
+            break
+    if not first or first[0] != len(today) - 1:
+        return None
+    side, c = first[1], bars[-1]["c"]
+    stop = c - p["stop_range"] * rng if side == "buy" else c + p["stop_range"] * rng
+    return Signal(side, c, stop, rng, bars[-1]["t"], rr=p["rr"], exit_by=d0 + DAY)
+
+
+MR_DEFAULTS = {"z": 2.0, "stop_atr": 2.0, "trend": True}
+
+
+def mean_reversion_1h(bars, cfg):
+    """On each 1h close: z = (close - SMA20) / stdev20 on 1h closes. z <= -z_entry -> long,
+    z >= +z_entry -> short (with trend: only longs above / shorts below the 200h EMA). Target the
+    SMA20, stop stop_atr x ATR(14, 1h); skipped if the target is less than 0.5R away."""
+    p = _p(cfg, MR_DEFAULTS)
+    now = bars[-1]["t"] + SPAN
+    if now % HOUR:
+        return None
+    h1 = _htf(bars, 60)
+    if len(h1) < 210 or h1[-1]["t"] + HOUR != now:
+        return None
+    closes = [b["c"] for b in h1]
+    w = closes[-20:]
+    mean = sum(w) / 20
+    sd = (sum((x - mean) ** 2 for x in w) / 20) ** 0.5
+    a = atr(h1[-60:], 14)
+    if not sd or not a:
+        return None
+    c = closes[-1]
+    z = (c - mean) / sd
+    ema = ema_series(closes[-210:], 200)[-1]
+    side = None
+    if z <= -p["z"] and (not p["trend"] or c > ema):
+        side, stop = "buy", c - p["stop_atr"] * a
+    elif z >= p["z"] and (not p["trend"] or c < ema):
+        side, stop = "sell", c + p["stop_atr"] * a
+    if not side or abs(mean - c) < 0.5 * abs(c - stop):
+        return None
+    return Signal(side, c, stop, a, bars[-1]["t"], target=mean)
+
+
 STRATEGIES = {
     "trend_breakout": trend_breakout,
     "orb": orb,
@@ -485,6 +590,9 @@ STRATEGIES = {
     "poc_rejection": poc_rejection,
     "gap_fade": gap_fade,
     "intraday_momentum": intraday_momentum,
+    "donchian_4h": donchian_4h,
+    "vol_breakout": vol_breakout,
+    "mean_reversion_1h": mean_reversion_1h,
 }
 
 # how much history (ms) each strategy needs before the decision bar
@@ -495,7 +603,13 @@ LOOKBACK_MS = {
     "poc_rejection": 4 * 24 * HOUR,
     "gap_fade": 4 * 24 * HOUR,
     "intraday_momentum": 4 * 24 * HOUR,
+    "donchian_4h": 62 * 4 * HOUR,
+    "vol_breakout": 2 * DAY,
+    "mean_reversion_1h": 215 * HOUR,
 }
+
+# strategies that can only fire on these boundaries (lets the backtester skip other bars cheaply)
+STEP_MS = {"donchian_4h": 4 * HOUR, "mean_reversion_1h": HOUR}
 
 
 def generate(bars, cfg):

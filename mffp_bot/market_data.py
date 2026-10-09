@@ -3,6 +3,7 @@ import itertools
 import json
 import time
 
+from websockets.exceptions import WebSocketException
 from websockets.sync.client import connect
 
 WS_URL = "wss://api-stream.myfundedperpetuals.com/v1/market-data"
@@ -42,14 +43,14 @@ def fetch_range(provider, symbol, interval, start_ms, end_ms, page=500):
     out, cur = {}, int(start_ms)
     while cur < end_ms:
         w_end = min(cur + page * unit - 1, int(end_ms))
-        for attempt in range(3):
+        for attempt in range(6):
             try:
                 batch = fetch_candles(provider, symbol, interval, limit=page, start_ms=cur, end_ms=w_end)
                 break
-            except (RuntimeError, TimeoutError, OSError):
-                if attempt == 2:
+            except (RuntimeError, TimeoutError, OSError, WebSocketException):   # incl. dropped connections
+                if attempt == 5:
                     raise
-                time.sleep(2 ** attempt)
+                time.sleep(min(2 ** attempt, 20))
         for b in batch:
             out[b["t"]] = b
         cur = w_end + 1

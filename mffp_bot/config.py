@@ -34,6 +34,8 @@ class MarketSpec:
 # for GOLD/SP500 and ~2-2.5 bp for EUR/JPY; BTC keeps the original 3 bp.
 MARKETS = {
     "BTC": MarketSpec("binance|BTCUSDT", "binance", "BTCUSDT", "crypto", 3, 1, 10, 3.0),
+    "ETH": MarketSpec("binance|ETHUSDT", "binance", "ETHUSDT", "crypto", 3, 2, 10, 3.0),
+    "SOL": MarketSpec("binance|SOLUSDT", "binance", "SOLUSDT", "crypto", 2, 2, 8, 3.0),
     "GOLD": MarketSpec("hyperliquid|xyz:GOLD", "hyperliquid", "xyz:GOLD", "tradfi", 4, 1, 10, 1.0),
     "SP500": MarketSpec("hyperliquid|xyz:SP500", "hyperliquid", "xyz:SP500", "tradfi", 3, 1, 12, 1.0),
     "EUR": MarketSpec("hyperliquid|xyz:EUR", "hyperliquid", "xyz:EUR", "fx", 1, 5, 50, 3.0),

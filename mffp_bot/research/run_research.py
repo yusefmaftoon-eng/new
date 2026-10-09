@@ -1,7 +1,9 @@
 """Strategy research with a locked holdout.
 
-python research/run_research.py select     # in-sample only: grid + walk-forward, writes selected.json
-python research/run_research.py holdout    # runs ONLY the configs frozen in selected.json on the holdout
+python research/run_research.py select [crypto]    # in-sample only: grid + walk-forward, writes selected*.json
+python research/run_research.py holdout [crypto]   # runs ONLY the frozen configs on the holdout
+
+Suites: default = TradFi perps (histdata proxy); crypto = Binance perps from the platform's own feed.
 
 Protocol
 - Data: ~24.8 months of 5m bars (histdata proxy, validated against the platform's own bars).
@@ -51,6 +53,32 @@ GRIDS = {
 MARKETS = {"orb": ["SP500", "GOLD"], "sweep": ["SP500", "GOLD"], "poc_rejection": ["GOLD"],
            "gap_fade": ["SP500"], "intraday_momentum": ["SP500"]}
 
+# crypto suite: the platform's own Binance-perp 5m history (2023-09-29 .. 2026-10-09), no proxy needed
+CRYPTO = ["BTC", "ETH", "SOL"]
+SUITES = {
+    "crypto": {
+        "DATA": {"BTC": "platform_BTCUSDT_5m.csv", "ETH": "platform_ETHUSDT_5m.csv", "SOL": "platform_SOLUSDT_5m.csv"},
+        "SPLIT": ny_ms(date(2025, 11, 11), 0),          # 70% of 2023-09-29 .. 2026-10-09
+        "SELECTED": os.path.join(HERE, "selected_crypto.json"),
+        "HOLDOUT": os.path.join(HERE, "holdout_crypto.json"),
+        "GRIDS": {
+            "donchian_4h": [("n", [20, 55], True), ("stop_atr", [2.0, 3.0, 4.0], True), ("rr", [2.0, 3.0, 5.0], True)],
+            "vol_breakout": [("k", [0.3, 0.5, 0.7], True), ("stop_range", [0.25, 0.5], True),
+                             ("rr", [1.0, 2.0, 4.0], True)],
+            "mean_reversion_1h": [("z", [2.0, 2.5, 3.0], True), ("stop_atr", [1.5, 2.5], True),
+                                  ("trend", [True, False], False)],
+            "trend_breakout": [("baseline", ["original settings"], False)],       # untuned benchmark
+        },
+        "MARKETS": {s: CRYPTO for s in ("donchian_4h", "vol_breakout", "mean_reversion_1h", "trend_breakout")},
+    },
+}
+HOLDOUT = os.path.join(HERE, "holdout.json")
+
+
+def use_suite(name):
+    """Rebind the module-level settings to a suite (before any data is loaded or workers forked)."""
+    globals().update(SUITES[name])
+
 _BARS = {}
 
 
@@ -63,7 +91,8 @@ def bars_for(market, holdout=False):
 
 
 def cfg_for(strategy, params, market):
-    return Config(strategy=strategy, params=dict(params)).for_market(market)
+    params = {k: v for k, v in dict(params).items() if k != "baseline"}
+    return Config(strategy=strategy, params=params).for_market(market)
 
 
 def _sim(job):
@@ -106,6 +135,8 @@ def pick(strategy, results, t0, t1, markets):
             continue
         vals = [s] + [raw[q] for q in neighbours(strategy, pt) if raw.get(q) is not None]
         smooth[pt] = statistics.mean(vals)
+    if not smooth:                                       # too few trades anywhere in this window
+        smooth = {pt: -1.0 for pt in raw}
     best = max(smooth, key=smooth.get)
     return best, raw, smooth
 
@@ -115,7 +146,7 @@ def fmt_pt(pt):
 
 
 def select():
-    t_start = min(bars_for(m)[0]["t"] for m in DATA)
+    t_start = max(bars_for(m)[0]["t"] for m in DATA)
     edges = [t_start + (SPLIT - t_start) * k // 6 for k in range(7)]
     jobs = [(s, pt, m) for s in GRIDS for pt in points(s) for m in MARKETS[s]]
     print(f"in-sample {day(t_start)} .. {day(SPLIT)} | {len(jobs)} simulations", flush=True)
@@ -200,7 +231,7 @@ def holdout():
         for m, st in out[s]["ho_per_market"].items():
             print(f"   {m}: n={st['trades']} avgR {st['avg_r']:+.3f} PF {st['pf']:.2f}")
         print(f"   QUALIFIES: {ok}")
-    with open(os.path.join(HERE, "holdout.json"), "w") as f:
+    with open(HOLDOUT, "w") as f:
         json.dump({"split": sel["split"], "frozen_at": sel["frozen_at"], "strategies": out}, f, indent=1, default=str)
 
 
@@ -209,4 +240,6 @@ def day(ms):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 2:
+        use_suite(sys.argv[2])
     {"select": select, "holdout": holdout}[sys.argv[1]]()
