@@ -8,6 +8,8 @@ I tested five candidates on SP500 and gold, over ~24.8 months of 5m data with a 
 
 The whole-grid check backs this up. I scored every parameter combination on the holdout afterwards: 398 strategy × parameter × market combinations, and zero of them meet the qualifying bar. So the result isn't an artefact of the pick rule.
 
+**Crypto follow-up (Oct 2026): also no qualifier.** Three higher-timeframe crypto strategies ran on 3 years of the platform's own BTC/ETH/SOL data (see "Crypto perps" below). Two had a positive holdout expectancy, but neither got near a 35% eval pass rate, and the 4h trend system trades too rarely.
+
 The bot still runs the original BTC strategy by default. The README warning ("do not run it live as-is") still applies.
 
 ## Data: why a proxy, and how it was checked
@@ -151,7 +153,89 @@ Gross expectancy was about 0 in-sample (−0.002R) and −0.03R on the holdout, 
 
 **Verdict:** no signal left to pay for. Reject.
 
-## Post-hoc diagnostics (`research/diagnostics.py`, not used for any decision)
+## Crypto perps (follow-up, Oct 2026)
+
+**Data:** the platform's own 5m history for BTCUSDT, ETHUSDT and SOLUSDT, 2023-09-29 → 2026-10-09: 318,240 bars each, with no gaps and no proxy needed. The split is in-sample to 2025-11-11 (70%) and holdout 2025-11-11 → 2026-10-09 (~11 months).
+
+The protocol is the same as above: walk-forward, the neighbourhood-smoothed pick, configs frozen in `research/selected_crypto.json` (commit `9e07168`) before one holdout run. Costs are crypto rates: 0.03%/fill, 0.03%/day swap, 3 bp slippage per fill.
+
+**Why higher timeframes:** at crypto costs, a round trip costs ~12 bp. The original 15m/5m `trend_breakout` loses **~25% of each R** to costs. The three new candidates use 1h / 4h / daily structure, so stops are ~1%+ and costs fall to **3–9% of R**. All three trade BTC+ETH+SOL as one portfolio with one position at a time, as the bot would.
+
+### C1. 4h Donchian trend
+
+**Rules:** on each 4h close (UTC grid), go long if the close is above the highest high of the previous `n` 4h bars, short if below the lowest low. The stop is `stop_atr`× ATR(14, 4h) and the target `rr`× risk. There is no time exit, since crypto never closes.
+
+**Why:** time-series momentum is among the best-documented crypto effects (Liu & Tsyvinski 2021).
+
+**Frozen config:** `n=55, stop_atr=2, rr=5`
+
+| | Trades | Win | Avg R | PF | Max DD | Eval pass / fail / halted |
+|---|---|---|---|---|---|---|
+| In-sample | 79 | 24% | +0.350 | 1.45 | $449 | 26% / 0% / 74% |
+| Walk-forward OOS | 68 | 22% | +0.087 | 1.11 | — | — |
+| **Holdout** | 30 | 20% | **+0.112** | 1.14 | $421 | 0% / 0% / 100% (9 halted, 21 unfinished) |
+
+This is the only candidate in either study with a stable in-sample neighbourhood (67% of the grid positive) and a positive walk-forward and holdout expectancy. But it fails three of the qualifying bars:
+- **Too few trades.** With ~5-day holds and one position at a time, it can't produce 60 trades in 11 months.
+- **PF 1.14 < 1.2.**
+- **The edge is narrow.** The holdout edge is almost all BTC (16 trades, +1.0R); ETH was flat (−0.04R).
+- **Losing streaks.** A 20–24% win rate with $45 risk produces streaks that hit the guardian's ~−$220 halt long before +$900.
+
+**Verdict:** a real-looking but slow and lumpy edge. It isn't an eval-passer at $45 risk.
+
+### C2. Daily volatility breakout
+
+**Rules:** each UTC day, take the first 5m close beyond today's open ± `k`× yesterday's range, in that direction. The stop is `stop_range`× yesterday's range and the target `rr`× risk; the trade is flat at the end of the UTC day.
+
+**Why:** a volatility expansion after the open tends to continue within the day.
+
+**Frozen config:** `k=0.7, stop_range=0.5, rr=4`
+
+| | Trades | Win | Avg R | PF | Max DD | Eval pass / fail / halted |
+|---|---|---|---|---|---|---|
+| In-sample | 614 | 42% | +0.029 | 1.07 | $1,363 | 9% / 0% / 91% |
+| Walk-forward OOS | 456 | 39% | −0.032 | 0.93 | — | — |
+| **Holdout** | 236 | 42% | **+0.086** | 1.21 | $784 | 11% / 0% / 89% |
+
+It cleared the trade count, expectancy and PF bars on the holdout (+$915 net), but the eval pass rate was 11% against 35% required. Two further warning signs:
+- **Selection didn't support it.** In-sample, the walk-forward was negative and only 11% of the grid was positive.
+- **The edge appears only in the portfolio.** Per coin, the holdout expectancy is ~0 (BTC +0.03R, ETH 0.00R, SOL −0.02R). The portfolio's +0.09R comes from taking whichever coin breaks out first each day, which I didn't design for and wouldn't trust without more data.
+
+**Verdict:** don't trade it.
+
+### C3. 1h mean reversion
+
+**Rules:** on each 1h close, compute z = (close − SMA20) / σ20. Fade |z| ≥ `z` back to the SMA20. The stop is `stop_atr`× ATR(14, 1h); with `trend`, only trades in the direction of the 200h EMA are taken.
+
+**Frozen config:** `z=2, stop_atr=2.5, trend=on`, on BTC only (ETH and SOL were negative in-sample).
+
+| | Trades | Win | Avg R | PF | Max DD | Eval pass / fail / halted |
+|---|---|---|---|---|---|---|
+| In-sample | 222 | 62% | −0.012 | 0.97 | $537 | 0% / 0% / 100% |
+| Walk-forward OOS | 62 | 47% | −0.162 | 0.70 | — | — |
+| **Holdout** | 85 | 60% | **−0.053** | 0.87 | $357 | 0% / 0% / 100% |
+
+No grid point was positive in-sample. **Verdict:** reject.
+
+### Benchmark: original `trend_breakout` (untuned)
+
+The original 15m-trend / 5m-breakout strategy, run at its existing settings:
+- **In-sample:** 781 trades, −0.135R, PF 0.80. ETH and SOL lost even more, so only the least-bad market (SOL) was kept.
+- **Holdout:** 310 trades, −0.112R, PF 0.83, 0% pass. BTC on its own was −0.25R.
+
+This confirms your earlier finding: costs at ~25% of R sink it.
+
+### What this means for a crypto bot
+
+Wiring any of these into the live bot would be running an eval with a known pass rate of ~0–11%, below the ~20% of a zero-edge coin flip under the bot's own rules.
+
+If you want to keep going on crypto, the 4h Donchian is the one worth forward-testing, ideally in DRY_RUN / sandbox for a few months. The eval maths works against it at $45 risk with a 20% win rate, so I'd look at:
+- adding a slower exit, e.g. a trailing stop, which the bot would need to support by amending orders;
+- only taking trades when there's room left to the floor.
+
+Either change is a new candidate and would need fresh out-of-sample data to judge.
+
+## Post-hoc diagnostics, TradFi study (`research/diagnostics.py`, not used for any decision)
 
 | Strategy | IS gross / net R | Holdout gross / net R | Holdout grid: positive share / qualifying |
 |---|---|---|---|
@@ -191,6 +275,7 @@ The same pattern shows up as in your BTC work. Where there's any gross edge at a
   - One line in `position_size`: fees and slippage are charged on `max(entry, stop)` instead of `entry`. Before this, a full stop on a short could cost a few cents over the $45 budget; the new sizing test caught it.
   - The kill switch, daily stop, target banking and `Guardian` are untouched.
 - **`bot.py`, `client.py`, `market_data.py`:** unchanged. With no qualifying strategy there was nothing to wire in, so no multi-symbol loop or time-exit handling was added. The research strategies can't be selected from the environment.
+- **Crypto follow-up:** `donchian_4h`, `vol_breakout` and `mean_reversion_1h` in `strategy.py`; ETH and SOL added to `MARKETS`; `STEP_MS` (the backtester skips bars a strategy can't fire on); a `crypto` suite in `run_research.py`. `market_data.fetch_range` now retries dropped WebSocket connections: `ConnectionClosedError` wasn't caught, and it killed two of the 3-year downloads.
 - **`research/`** (new):
   - `histdata.py`: proxy download plus the timezone fix
   - `fetch_platform.py`: caches platform candles by `coin`
