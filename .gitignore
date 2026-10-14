@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 *.csv
 .venv/
+kalshi_btc15m_cache.json

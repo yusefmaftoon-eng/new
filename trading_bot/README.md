@@ -99,21 +99,39 @@ python -m trading_bot.run_kalshi_btc15m_bot
 # Kalshi's demo exchange (fake money, needs a demo API key)
 python -m trading_bot.run_kalshi_btc15m_bot --demo --live
 
-# Real money
+# Real money: 2% of balance per trade, max $20, pause for the day after -10%, quit below $50
 export KALSHI_API_KEY_ID=...                  # kalshi.com -> Account & security -> API Keys
 export KALSHI_PRIVATE_KEY_PATH=~/kalshi.pem   # the private key file Kalshi gives you
-python -m trading_bot.run_kalshi_btc15m_bot --live --stake 5 --max-daily-loss 25
+python -m trading_bot.run_kalshi_btc15m_bot --live --stake-pct 0.02 --max-stake 20 \
+    --max-daily-loss-pct 0.10 --stop-below 50
 ```
 
-Useful flags: `--threshold 0.80`, `--max-price 0.99`, `--window 150`,
-`--stake 10` (dollars per trade), `--max-trades N`, `--max-daily-loss X`.
+Strategy flags: `--threshold 0.80`, `--max-price 0.99`, `--window 150`.
+
+Risk flags (the bot **never bets the whole wallet** by default; it risks 2% of
+the current balance per trade):
+
+| Flag | Meaning |
+|---|---|
+| `--stake-pct 0.02` | risk this fraction of current balance per trade (default 2%) |
+| `--stake 5` | or a fixed dollar amount per trade instead |
+| `--max-stake 20` | hard cap in dollars on any single trade |
+| `--max-daily-loss 25` / `--max-daily-loss-pct 0.10` | stop for the rest of the UTC day after losing this much |
+| `--stop-below 50` | quit entirely if the balance drops below this |
+| `--max-trades N` | stop after N trades |
+| `--paper-bankroll 100` | starting balance in paper mode |
+
 Every settled trade is appended to `kalshi_btc15m_trades.csv`.
 
 ### Backtest of this exact rule
 
 ```bash
-python -m trading_bot.run_kalshi_btc15m_backtest --max-markets 1500
+python -m trading_bot.run_kalshi_btc15m_backtest --threshold 0.80
+python -m trading_bot.run_kalshi_btc15m_backtest --threshold 0.70 --bankroll 100 --stake-pct 0.02
 ```
+
+The first run downloads the candles (several minutes, because of Kalshi's rate
+limits) and caches them in `kalshi_btc15m_cache.json`. Later runs reuse the cache.
 
 This uses Kalshi's public 1-minute candles. Because they're 1-minute, the
 2:30 window is approximated by checking prices at T-2:00 and T-1:00. Result
@@ -128,7 +146,23 @@ included, no slippage:
 | 0.90-0.95 | 241 | 92.9% | 0.924 | -0.02% |
 | 0.95-1.00 | 413 | 98.1% | 0.976 | +0.29% |
 
-**About break-even.** The favorite wins about as often as its price says it
+Lowering the threshold to **70%** made it worse: entries at 70-80c won only
+66-69% of the time, which is less than the price paid. Overall return fell to
+**-1.65%** across 911 trades.
+
+Bet size matters more than the threshold. Here is the same 15 days replayed
+oldest-first from a $100 balance:
+
+| Stake per trade | 80% rule ends at | worst drawdown | 70% rule ends at | worst drawdown |
+|---|---|---|---|---|
+| 100% of balance | $0.43 | 99.7% | $0.29 | 99.8% |
+| 25% | $2.93 | 97.5% | $2.68 | 97.7% |
+| 5% | $84.40 | 49.3% | $41.64 | 59.7% |
+| 2% | $95.04 | 20.1% | $69.61 | 31.2% |
+
+With your whole wallet in each trade, the first loss wipes you out.
+
+**About break-even (80%).** The favorite wins about as often as its price says it
 should, so fees and slippage take whatever edge is left. The differences
 between buckets are within noise at these sample sizes. Paper trade it before
 risking money, and keep in mind that one loss at 95c wipes out the profit

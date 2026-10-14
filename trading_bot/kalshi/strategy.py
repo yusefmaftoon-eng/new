@@ -20,7 +20,9 @@ class StrategyConfig:
     max_price: float = 0.99       # never pay more than this per contract
     window_seconds: float = 150   # only trade in the last 2:30
     min_seconds_left: float = 3   # too close to the bell to get a fill
-    stake_dollars: float = 10.0   # dollars to spend per trade
+    stake_dollars: float = 10.0   # dollars per trade (used when stake_pct is None)
+    stake_pct: float | None = None  # or: this fraction of current balance per trade
+    max_stake: float | None = None  # hard cap on dollars per trade
     slippage: float = 0.01        # pay up to this much above the ask (capped at max_price)
 
 
@@ -49,6 +51,19 @@ def decide(yes_bid: float | None, yes_ask: float | None, seconds_left: float,
 def taker_fee(contracts: float, price: float) -> float:
     """Kalshi's general taker fee: 0.07 * C * P * (1 - P), rounded up to the cent."""
     return math.ceil(0.07 * contracts * price * (1 - price) * 100 - 1e-9) / 100
+
+
+def stake_for(balance: float | None, cfg: StrategyConfig) -> float:
+    """Dollars to risk on the next trade: a fixed amount, or a % of balance, capped."""
+    if cfg.stake_pct is not None and balance is not None:
+        stake = balance * cfg.stake_pct
+    else:
+        stake = cfg.stake_dollars
+    if cfg.max_stake is not None:
+        stake = min(stake, cfg.max_stake)
+    if balance is not None:
+        stake = min(stake, balance)
+    return max(stake, 0.0)
 
 
 def contracts_for(stake_dollars: float, price: float) -> int:

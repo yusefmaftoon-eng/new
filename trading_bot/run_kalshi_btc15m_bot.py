@@ -9,10 +9,20 @@ PAPER MODE IS THE DEFAULT. Nothing is sent to Kalshi unless you pass --live.
     # paper trade (no keys needed)
     python -m trading_bot.run_kalshi_btc15m_bot
 
-    # real money
+    # real money: 2% of balance per trade, max $20, stop for the day after -10%
     export KALSHI_API_KEY_ID=...            # from kalshi.com -> Account & security -> API Keys
     export KALSHI_PRIVATE_KEY_PATH=~/kalshi.pem
-    python -m trading_bot.run_kalshi_btc15m_bot --live --stake 5 --max-daily-loss 25
+    python -m trading_bot.run_kalshi_btc15m_bot --live --stake-pct 0.02 --max-stake 20 \
+        --max-daily-loss-pct 0.10 --stop-below 50
+
+Risk controls (all optional, combine freely):
+  --stake-pct F         risk F of your current balance per trade (default 0.02 = 2%)
+  --stake D             or a fixed D dollars per trade instead
+  --max-stake D         never more than D dollars on one trade
+  --max-daily-loss D    stop trading for the day after losing D dollars
+  --max-daily-loss-pct F  ... or after losing F of the day's starting balance
+  --stop-below D        stop entirely if the balance falls below D
+  --max-trades N        stop after N trades
 """
 from __future__ import annotations
 
@@ -24,7 +34,7 @@ from datetime import datetime, timezone
 
 from trading_bot.kalshi.client import DEMO_BASE_URL, PROD_BASE_URL, KalshiClient
 from trading_bot.kalshi.strategy import (StrategyConfig, contracts_for, decide, order_params,
-                                         taker_fee)
+                                         stake_for, taker_fee)
 
 
 def _now() -> float:
@@ -48,9 +58,14 @@ def log(msg: str):
 
 class Bot:
     def __init__(self, client: KalshiClient, cfg: StrategyConfig, series: str, live: bool,
-                 max_trades: int | None, max_daily_loss: float | None, log_path: str):
+                 max_trades: int | None, max_daily_loss: float | None, log_path: str,
+                 max_daily_loss_pct: float | None = None, stop_below: float | None = None,
+                 paper_bankroll: float = 100.0):
         self.client, self.cfg, self.series, self.live = client, cfg, series, live
         self.max_trades, self.max_daily_loss = max_trades, max_daily_loss
+        self.max_daily_loss_pct, self.stop_below = max_daily_loss_pct, stop_below
+        self.paper_balance = paper_bankroll
+        self.day_start_balance: float | None = None
         self.log_path = log_path
         self.traded: set[str] = set()      # tickers we've already entered
         self.open_positions: list[dict] = []
@@ -64,9 +79,12 @@ class Bot:
         mode = "LIVE" if self.live else "PAPER"
         log(f"Starting in {mode} mode on {self.series}: threshold={self.cfg.threshold:.2f} "
             f"max_price={self.cfg.max_price:.2f} window={self.cfg.window_seconds:.0f}s "
-            f"stake=${self.cfg.stake_dollars:.2f}")
-        if self.live:
-            log(f"Account balance: ${self.client.get_balance_dollars():.2f}")
+            + (f"stake={self.cfg.stake_pct:.1%} of balance" if self.cfg.stake_pct is not None
+               else f"stake=${self.cfg.stake_dollars:.2f}"))
+        bal = self.balance()
+        self.day_start_balance = bal
+        log(f"{'Account' if self.live else 'Paper'} balance: ${bal:.2f}  "
+            f"(next stake ${stake_for(bal, self.cfg):.2f})")
         while True:
             try:
                 sleep_for = self.tick()
@@ -77,6 +95,9 @@ class Bot:
                 sleep_for = 5
             if self.max_trades is not None and self.n_trades >= self.max_trades and not self.open_positions:
                 log("Reached --max-trades and all positions settled; stopping.")
+                return
+            if self.stop_below is not None and not self.open_positions and self.balance() < self.stop_below:
+                log(f"Balance below --stop-below ${self.stop_below:.2f}; stopping.")
                 return
             time.sleep(sleep_for)
 
@@ -106,10 +127,14 @@ class Bot:
 
     # -- trading -----------------------------------------------------------------
 
+    def balance(self) -> float:
+        return self.client.get_balance_dollars() if self.live else self.paper_balance
+
     def _enter(self, m: dict, sig, secs_left: float):
-        n = contracts_for(self.cfg.stake_dollars, sig.limit)
+        stake = stake_for(self.balance(), self.cfg)
+        n = contracts_for(stake, sig.limit)
         if n < 1:
-            log(f"{m['ticker']}: stake ${self.cfg.stake_dollars} too small for one contract at {sig.limit}")
+            log(f"{m['ticker']}: stake ${stake:.2f} too small for one contract at {sig.limit}")
             self.traded.add(m["ticker"])
             return
         book_side, yes_price = order_params(sig, m.get("price_ranges"))
@@ -130,6 +155,7 @@ class Bot:
         else:
             filled, price = float(n), sig.ask
             fee = taker_fee(filled, price)
+            self.paper_balance -= filled * price + fee
 
         self.n_trades += 1
         pos = {"ticker": m["ticker"], "side": sig.side, "contracts": filled, "price": price,
@@ -150,8 +176,10 @@ class Bot:
             payout = pos["contracts"] if pos["side"] == result else 0.0
             pnl = payout - cost
             self.realized_today += pnl
+            if not self.live:
+                self.paper_balance += payout
             log(f"SETTLED {pos['ticker']}: result={result.upper()} we had {pos['side'].upper()} "
-                f"-> P&L ${pnl:+.2f}  (today ${self.realized_today:+.2f})")
+                f"-> P&L ${pnl:+.2f}  (today ${self.realized_today:+.2f}, balance ${self.balance():.2f})")
             self._write_log({**pos, "result": result, "pnl": round(pnl, 4),
                              "mode": "live" if self.live else "paper"})
         self.open_positions = still_open
@@ -161,12 +189,16 @@ class Bot:
             return False
         if self.max_daily_loss is not None and self.realized_today <= -self.max_daily_loss:
             return False
+        if (self.max_daily_loss_pct is not None and self.day_start_balance
+                and self.realized_today <= -self.max_daily_loss_pct * self.day_start_balance):
+            return False
         return True
 
     def _roll_day(self):
         today = datetime.now(timezone.utc).date()
         if today != self.day:
             self.day, self.realized_today = today, 0.0
+            self.day_start_balance = self.balance()
 
     def _write_log(self, row: dict):
         new = not os.path.exists(self.log_path)
@@ -185,10 +217,16 @@ def main():
     p.add_argument("--threshold", type=float, default=0.80)
     p.add_argument("--max-price", type=float, default=0.99)
     p.add_argument("--window", type=float, default=150, help="seconds before close to start looking")
-    p.add_argument("--stake", type=float, default=10.0, help="dollars per trade")
+    p.add_argument("--stake-pct", type=float, default=0.02, help="fraction of balance per trade")
+    p.add_argument("--stake", type=float, default=None, help="fixed dollars per trade (overrides --stake-pct)")
+    p.add_argument("--max-stake", type=float, default=None, help="cap on dollars per trade")
     p.add_argument("--slippage", type=float, default=0.01)
     p.add_argument("--max-trades", type=int, default=None)
     p.add_argument("--max-daily-loss", type=float, default=None, help="stop for the day after losing this much")
+    p.add_argument("--max-daily-loss-pct", type=float, default=None,
+                   help="stop for the day after losing this fraction of the day's starting balance")
+    p.add_argument("--stop-below", type=float, default=None, help="quit if balance falls below this")
+    p.add_argument("--paper-bankroll", type=float, default=100.0, help="starting balance in paper mode")
     p.add_argument("--log", default="kalshi_btc15m_trades.csv")
     args = p.parse_args()
 
@@ -201,9 +239,13 @@ def main():
                           api_key_id=key_id if args.live else None,
                           private_key_path=os.path.expanduser(key_path) if (args.live and key_path) else None)
     cfg = StrategyConfig(threshold=args.threshold, max_price=args.max_price,
-                         window_seconds=args.window, stake_dollars=args.stake,
-                         slippage=args.slippage)
-    bot = Bot(client, cfg, args.series, args.live, args.max_trades, args.max_daily_loss, args.log)
+                         window_seconds=args.window, slippage=args.slippage,
+                         stake_dollars=args.stake or 0.0,
+                         stake_pct=None if args.stake is not None else args.stake_pct,
+                         max_stake=args.max_stake)
+    bot = Bot(client, cfg, args.series, args.live, args.max_trades, args.max_daily_loss, args.log,
+              max_daily_loss_pct=args.max_daily_loss_pct, stop_below=args.stop_below,
+              paper_bankroll=args.paper_bankroll)
     try:
         bot.run()
     except KeyboardInterrupt:
