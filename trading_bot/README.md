@@ -84,6 +84,56 @@ Each resolved market contributes at most one trade (buy-and-hold-to-resolution,
 matching how most Polymarket positions are actually taken). Fees are modeled
 as a flat `--fee-pct` of stake — tune to match real spread/gas costs.
 
+## Kalshi 15-minute BTC bot (live/paper trading)
+
+`run_kalshi_btc15m_bot.py` trades Kalshi's "BTC price up in next 15 mins?"
+markets (series `KXBTC15M`) with one rule: **in the last 2:30 before a market
+closes, if YES costs 80c or more, buy YES; if NO costs 80c or more, buy NO.**
+One entry per market, sent as an immediate-or-cancel limit order so it never
+pays more than ask + `--slippage` (capped at `--max-price`).
+
+```bash
+# Paper trading (the default; no API key needed, nothing is sent to Kalshi)
+python -m trading_bot.run_kalshi_btc15m_bot
+
+# Kalshi's demo exchange (fake money, needs a demo API key)
+python -m trading_bot.run_kalshi_btc15m_bot --demo --live
+
+# Real money
+export KALSHI_API_KEY_ID=...                  # kalshi.com -> Account & security -> API Keys
+export KALSHI_PRIVATE_KEY_PATH=~/kalshi.pem   # the private key file Kalshi gives you
+python -m trading_bot.run_kalshi_btc15m_bot --live --stake 5 --max-daily-loss 25
+```
+
+Useful flags: `--threshold 0.80`, `--max-price 0.99`, `--window 150`,
+`--stake 10` (dollars per trade), `--max-trades N`, `--max-daily-loss X`.
+Every settled trade is appended to `kalshi_btc15m_trades.csv`.
+
+### Backtest of this exact rule
+
+```bash
+python -m trading_bot.run_kalshi_btc15m_backtest --max-markets 1500
+```
+
+This uses Kalshi's public 1-minute candles. Because they're 1-minute, the
+2:30 window is approximated by checking prices at T-2:00 and T-1:00. Result
+on 1,500 settled markets (Sep 29 - Oct 14, 2026), $10 stake, taker fees
+included, no slippage:
+
+| Entry price | Trades | Win rate | Avg price | Return on staked |
+|---|---|---|---|---|
+| all | 854 | 93.6% | 0.932 | **-0.11%** |
+| 0.80-0.85 | 77 | 84.4% | 0.820 | +1.74% |
+| 0.85-0.90 | 123 | 85.4% | 0.870 | -2.83% |
+| 0.90-0.95 | 241 | 92.9% | 0.924 | -0.02% |
+| 0.95-1.00 | 413 | 98.1% | 0.976 | +0.29% |
+
+**About break-even.** The favorite wins about as often as its price says it
+should, so fees and slippage take whatever edge is left. The differences
+between buckets are within noise at these sample sizes. Paper trade it before
+risking money, and keep in mind that one loss at 95c wipes out the profit
+from about 19 wins.
+
 ## Layout
 
 ```
@@ -98,8 +148,13 @@ trading_bot/
     engine.py               # time-series backtest (crypto)
     polymarket_engine.py    # event-based backtest (Polymarket)
     metrics.py               # Sharpe, CAGR, max drawdown, win rate
+  kalshi/
+    client.py               # Kalshi API v2: auth signing, markets, candles, V2 orders
+    strategy.py             # last-2:30 / 80c rule, fees, tick rounding
   run_crypto_backtest.py
   run_polymarket_backtest.py
+  run_kalshi_btc15m_bot.py       # live/paper bot
+  run_kalshi_btc15m_backtest.py  # backtest of the same rule on settled markets
 ```
 
 ## Known limitations / next steps
@@ -111,7 +166,5 @@ trading_bot/
 - No walk-forward or out-of-sample split is enforced — if you tune
   `--fast`/`--slow`/`--entry-threshold` against the same window you evaluate
   on, you will overfit. Hold out a test period.
-- No live execution/order-placement is implemented — this is backtesting only.
-  Wiring up real trading (with real exchange API keys) is a meaningfully
-  bigger, riskier step; happy to help with that separately once you've
-  reviewed real backtest results.
+- Live order placement exists only for the Kalshi BTC bot above. The crypto and
+  Polymarket strategies are still backtest-only.
